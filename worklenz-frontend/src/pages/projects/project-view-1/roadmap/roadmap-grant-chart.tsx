@@ -10,7 +10,7 @@ import {
 } from '../../../../features/roadmap/roadmap-slice';
 import { useAppSelector } from '../../../../hooks/useAppSelector';
 import { useAppDispatch } from '../../../../hooks/useAppDispatch';
-import { toggleTaskDrawer } from '../../../../features/tasks/tasks.slice';
+import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
 
 type RoadmapGrantChartProps = {
   view: ViewMode;
@@ -35,7 +35,7 @@ const RoadmapGrantChart = ({ view }: RoadmapGrantChartProps) => {
 
   //   function to handle double click
   const handleDoubleClick = () => {
-    dispatch(toggleTaskDrawer());
+    dispatch(setShowTaskDrawer(true));
   };
 
   //   function to handle date change

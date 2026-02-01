@@ -7,10 +7,17 @@ export interface NewTaskType extends Task {
   isExpanded?: boolean;
 }
 
+// Helper function to get dates relative to today
+const getRelativeDate = (daysFromNow: number): Date => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  return date;
+};
+
 const tasks: NewTaskType[] = [
   {
-    start: new Date(2024, 10, 1),
-    end: new Date(2024, 10, 5),
+    start: getRelativeDate(0),
+    end: getRelativeDate(4),
     name: 'Planning Phase',
     id: 'Task_1',
     progress: 50,
@@ -22,8 +29,8 @@ const tasks: NewTaskType[] = [
     isExpanded: false,
     subTasks: [
       {
-        start: new Date(2024, 10, 1),
-        end: new Date(2024, 10, 2),
+        start: getRelativeDate(0),
+        end: getRelativeDate(1),
         name: 'Initial Meeting',
         id: 'Task_1_1',
         progress: 80,
@@ -35,8 +42,8 @@ const tasks: NewTaskType[] = [
         },
       },
       {
-        start: new Date(2024, 10, 3),
-        end: new Date(2024, 10, 5),
+        start: getRelativeDate(2),
+        end: getRelativeDate(4),
         name: 'Resource Allocation',
         id: 'Task_1_2',
         progress: 20,
@@ -50,8 +57,8 @@ const tasks: NewTaskType[] = [
     ],
   },
   {
-    start: new Date(2024, 10, 6),
-    end: new Date(2024, 10, 10),
+    start: getRelativeDate(5),
+    end: getRelativeDate(9),
     name: 'Development Phase',
     id: 'Task_2',
     progress: 30,
@@ -63,8 +70,8 @@ const tasks: NewTaskType[] = [
     isExpanded: false,
     subTasks: [
       {
-        start: new Date(2024, 10, 6),
-        end: new Date(2024, 10, 8),
+        start: getRelativeDate(5),
+        end: getRelativeDate(7),
         name: 'Coding',
         id: 'Task_2_1',
         progress: 40,
@@ -76,8 +83,8 @@ const tasks: NewTaskType[] = [
         },
       },
       {
-        start: new Date(2024, 10, 9),
-        end: new Date(2024, 10, 10),
+        start: getRelativeDate(8),
+        end: getRelativeDate(9),
         name: 'Code Review',
         id: 'Task_2_2',
         progress: 60,
@@ -91,8 +98,8 @@ const tasks: NewTaskType[] = [
     ],
   },
   {
-    start: new Date(2024, 10, 11),
-    end: new Date(2024, 10, 12),
+    start: getRelativeDate(10),
+    end: getRelativeDate(11),
     name: 'Design Phase',
     id: 'Task_3',
     progress: 70,
@@ -104,8 +111,8 @@ const tasks: NewTaskType[] = [
     isExpanded: false,
   },
   {
-    start: new Date(2024, 10, 13),
-    end: new Date(2024, 10, 17),
+    start: getRelativeDate(12),
+    end: getRelativeDate(16),
     name: 'Testing Phase',
     id: 'Task_4',
     progress: 20,
@@ -117,8 +124,8 @@ const tasks: NewTaskType[] = [
     isExpanded: false,
     subTasks: [
       {
-        start: new Date(2024, 10, 13),
-        end: new Date(2024, 10, 14),
+        start: getRelativeDate(12),
+        end: getRelativeDate(13),
         name: 'Unit Testing',
         id: 'Task_4_1',
         progress: 50,
@@ -130,8 +137,8 @@ const tasks: NewTaskType[] = [
         },
       },
       {
-        start: new Date(2024, 10, 15),
-        end: new Date(2024, 10, 17),
+        start: getRelativeDate(14),
+        end: getRelativeDate(16),
         name: 'Integration Testing',
         id: 'Task_4_2',
         progress: 30,
@@ -145,8 +152,8 @@ const tasks: NewTaskType[] = [
     ],
   },
   {
-    start: new Date(2024, 10, 18),
-    end: new Date(2024, 10, 20),
+    start: getRelativeDate(17),
+    end: getRelativeDate(19),
     name: 'Deployment Phase',
     id: 'Task_5',
     progress: 90,

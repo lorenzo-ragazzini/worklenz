@@ -19,6 +19,9 @@ const ProjectViewMembers = React.lazy(
 const ProjectViewUpdates = React.lazy(
   () => import('@/pages/projects/project-view-1/updates/project-view-updates')
 );
+const ProjectViewRoadmap = React.lazy(
+  () => import('@/pages/projects/project-view-1/roadmap/project-view-roadmap')
+);
 
 // type of a tab items
 type TabItems = {
@@ -43,6 +46,7 @@ const getTabLabel = (key: string): string => {
         files: 'Files',
         members: 'Members',
         updates: 'Updates',
+        roadmap: 'Roadmap',
       };
       return fallbacks[key] || key;
     }
@@ -56,6 +60,7 @@ const getTabLabel = (key: string): string => {
       files: 'Files',
       members: 'Members',
       updates: 'Updates',
+      roadmap: 'Roadmap',
     };
     return fallbacks[key] || key;
   }
@@ -117,6 +122,16 @@ export const tabItems: TabItems[] = [
       React.createElement(ProjectViewUpdates)
     ),
   },
+  {
+    index: 6,
+    key: 'roadmap',
+    label: getTabLabel('roadmap'),
+    element: React.createElement(
+      Suspense,
+      { fallback: React.createElement(InlineSuspenseFallback) },
+      React.createElement(ProjectViewRoadmap)
+    ),
+  },
 ];
 
 // Function to update tab labels when language changes
@@ -141,6 +156,9 @@ export const updateTabLabels = () => {
           break;
         case 'updates':
           item.label = getTabLabel('updates');
+          break;
+        case 'roadmap':
+          item.label = getTabLabel('roadmap');
           break;
       }
     });

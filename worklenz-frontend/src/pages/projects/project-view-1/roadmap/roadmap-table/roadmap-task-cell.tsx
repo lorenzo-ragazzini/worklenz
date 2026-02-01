@@ -7,7 +7,7 @@ import {
 } from '@/shared/antd-imports';
 import { NewTaskType, toggleTaskExpansion } from '@features/roadmap/roadmap-slice';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
-import { toggleTaskDrawer } from '@features/tasks/taskSlice';
+import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
 import { colors } from '@/styles/colors';
 
 type RoadmapTaskCellProps = {
@@ -94,7 +94,7 @@ const RoadmapTaskCell = ({ task, isSubtask = false }: RoadmapTaskCellProps) => {
         type="text"
         icon={<ExpandAltOutlined />}
         onClick={() => {
-          dispatch(toggleTaskDrawer());
+          dispatch(setShowTaskDrawer(true));
         }}
         style={{
           backgroundColor: colors.transparent,
