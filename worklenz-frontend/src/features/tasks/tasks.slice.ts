@@ -29,6 +29,7 @@ export enum IGroupBy {
   PRIORITY = 'priority',
   PHASE = 'phase',
   MEMBERS = 'members',
+  DUE_DATE = 'due_date',
 }
 
 export const GROUP_BY_STATUS_VALUE = IGroupBy.STATUS;
@@ -39,6 +40,7 @@ export const GROUP_BY_OPTIONS: IGroupByOption[] = [
   { label: 'Status', value: GROUP_BY_STATUS_VALUE },
   { label: 'Priority', value: GROUP_BY_PRIORITY_VALUE },
   { label: 'Phase', value: GROUP_BY_PHASE_VALUE },
+  { label: 'Due Date', value: IGroupBy.DUE_DATE },
 ];
 
 const LOCALSTORAGE_GROUP_KEY = 'worklenz.tasklist.group_by';

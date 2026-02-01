@@ -291,6 +291,7 @@ const useFilterData = (position: 'board' | 'list'): FilterSection[] => {
               label: (kanbanProject as any)?.phase_label || t('phaseText'),
               value: 'phase',
             },
+            { id: 'due_date', label: t('dueDateText'), value: 'due_date' },
           ],
         },
       ];

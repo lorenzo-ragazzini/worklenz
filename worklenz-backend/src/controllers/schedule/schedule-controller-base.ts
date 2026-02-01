@@ -6,7 +6,8 @@ export const GroupBy = {
   STATUS: "status",
   PRIORITY: "priority",
   LABELS: "labels",
-  PHASE: "phase"
+  PHASE: "phase",
+  DUE_DATE: "due_date"
 };
 
 export interface IScheduleTaskGroup {
