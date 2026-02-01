@@ -187,9 +187,9 @@ const EnhancedKanbanTaskCard: React.FC<EnhancedKanbanTaskCardProps> = React.memo
             <Flex gap={4} align="center">
               <CustomDueDatePicker task={task} onDateChange={setDueDate} />
 
-              {/* Subtask Section - only show if count > 1 */}
-              {task.sub_tasks_count != null && Number(task.sub_tasks_count) > 1 && (
-                <Tooltip title={t(`indicators.tooltips.subtasks${Number(task.sub_tasks_count) === 1 ? '' : '_plural'}`, { count: Number(task.sub_tasks_count) })}>
+              {/* Subtask Section - show for any task with subtasks or allow adding subtasks */}
+              {task.sub_tasks_count != null && Number(task.sub_tasks_count) >= 0 && (
+                <Tooltip title={task.sub_tasks_count > 0 ? t(`indicators.tooltips.subtasks${Number(task.sub_tasks_count) === 1 ? '' : '_plural'}`, { count: Number(task.sub_tasks_count) }) : t('addSubtask', 'Add Subtask')}>
                   <Button
                     onClick={handleSubtaskButtonClick}
                     size="small"

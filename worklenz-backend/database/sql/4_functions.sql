@@ -6689,9 +6689,9 @@ BEGIN
     ELSIF due_date = CURRENT_DATE + INTERVAL '1 day' THEN
         RETURN 'tomorrow';
     ELSIF due_date <= CURRENT_DATE + INTERVAL '1 week' THEN
-        RETURN 'this_week';
+        RETURN 'this week';
     ELSIF due_date <= CURRENT_DATE + INTERVAL '2 weeks' THEN
-        RETURN 'next_week';
+        RETURN 'next week';
     ELSE
         RETURN 'later';
     END IF;

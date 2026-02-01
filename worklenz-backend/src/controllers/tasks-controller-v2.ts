@@ -394,12 +394,12 @@ export default class TasksControllerV2 extends TasksControllerBase {
                  sort_order
           FROM (
             VALUES
-              ('no_date', 'No Date', '#a9a9a9', '#a9a9a9', 0),
+              ('no date', 'No Date', '#a9a9a9', '#a9a9a9', 0),
               ('overdue', 'Overdue', '#f5222d', '#f5222d', 1),
               ('today', 'Today', '#1890ff', '#1890ff', 2),
               ('tomorrow', 'Tomorrow', '#52c41a', '#52c41a', 3),
-              ('this_week', 'This Week', '#faad14', '#faad14', 4),
-              ('next_week', 'Next Week', '#722ed1', '#722ed1', 5),
+              ('this week', 'This Week', '#faad14', '#faad14', 4),
+              ('next week', 'Next Week', '#722ed1', '#722ed1', 5),
               ('later', 'Later', '#13c2c2', '#13c2c2', 6)
           ) AS due_date_categories(category_name, name, color_code, color_code_dark, sort_order)
           ORDER BY sort_order;
