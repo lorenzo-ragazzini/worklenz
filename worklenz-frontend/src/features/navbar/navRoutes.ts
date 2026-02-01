@@ -18,16 +18,16 @@ export const navRoutes: NavRoutesType[] = [
     adminOnly: false,
     freePlanFeature: true,
   },
-  // {
-  //   name: 'schedule',
-  //   path: '/worklenz/schedule',
-  //   adminOnly: true,
-  //   freePlanFeature: false,
-  // },
+  {
+    name: 'schedule',
+    path: '/worklenz/schedule',
+    adminOnly: true,
+    freePlanFeature: true,
+  },
   {
     name: 'reporting',
     path: '/worklenz/reporting/overview',
     adminOnly: true,
-    freePlanFeature: false,
+    freePlanFeature: true,
   },
 ];
