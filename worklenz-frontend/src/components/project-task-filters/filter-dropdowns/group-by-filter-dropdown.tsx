@@ -34,6 +34,7 @@ const GroupByFilterDropdown = () => {
       { key: IGroupBy.STATUS, label: t('statusText') },
       { key: IGroupBy.PRIORITY, label: t('priorityText') },
       { key: IGroupBy.PHASE, label: project?.phase_label || t('phaseText') },
+      { key: IGroupBy.DUE_DATE, label: t('dueDateText') },
     ];
 
     // if (projectView === 'kanban') {

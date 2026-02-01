@@ -384,6 +384,27 @@ export default class TasksControllerV2 extends TasksControllerBase {
         `;
         params = [projectId];
         break;
+      case GroupBy.DUE_DATE:
+        // Return predefined due date categories
+        q = `
+          SELECT category_name as id,
+                 category_name as name,
+                 color_code,
+                 color_code_dark,
+                 sort_order
+          FROM (
+            VALUES
+              ('no_date', 'No Date', '#a9a9a9', '#a9a9a9', 0),
+              ('overdue', 'Overdue', '#f5222d', '#f5222d', 1),
+              ('today', 'Today', '#1890ff', '#1890ff', 2),
+              ('tomorrow', 'Tomorrow', '#52c41a', '#52c41a', 3),
+              ('this_week', 'This Week', '#faad14', '#faad14', 4),
+              ('next_week', 'Next Week', '#722ed1', '#722ed1', 5),
+              ('later', 'Later', '#13c2c2', '#13c2c2', 6)
+          ) AS due_date_categories(category_name, name, color_code, color_code_dark, sort_order)
+          ORDER BY sort_order;
+        `;
+        break;
 
       default:
         break;
@@ -499,6 +520,15 @@ export default class TasksControllerV2 extends TasksControllerBase {
         map[task.priority]?.tasks.push(task);
       } else if (groupBy === GroupBy.PHASE && task.phase_id) {
         map[task.phase_id]?.tasks.push(task);
+      } else if (groupBy === GroupBy.DUE_DATE) {
+        // Group by due date category
+        const dueDateCategory = await this.getDueDateCategory(task.END_DATE);
+        if (map[dueDateCategory]) {
+          map[dueDateCategory].tasks.push(task);
+        } else {
+          // If category doesn't exist in map, add to unmapped
+          unmapped.push(task);
+        }
       } else {
         unmapped.push(task);
       }
@@ -1554,6 +1584,20 @@ export default class TasksControllerV2 extends TasksControllerBase {
     };
 
     return colorMaps[groupBy]?.[groupValue] || "#d9d9d9";
+  }
+
+  private static async getDueDateCategory(dueDate: string | null): Promise<string> {
+    try {
+      if (!dueDate) {
+        return 'no_date';
+      }
+
+      const result = await db.query("SELECT categorize_due_date($1) AS category", [dueDate]);
+      return result.rows[0]?.category || 'no_date';
+    } catch (error) {
+      log_error(`Error categorizing due date: ${error}`);
+      return 'no_date';
+    }
   }
 
   @HandleExceptions()
