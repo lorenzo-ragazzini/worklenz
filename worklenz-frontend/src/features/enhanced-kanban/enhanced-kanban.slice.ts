@@ -25,12 +25,14 @@ export enum IGroupBy {
   PRIORITY = 'priority',
   PHASE = 'phase',
   MEMBERS = 'members',
+  DUE_DATE = 'due_date',
 }
 
 export const GROUP_BY_OPTIONS: IGroupByOption[] = [
   { label: 'Status', value: IGroupBy.STATUS },
   { label: 'Priority', value: IGroupBy.PRIORITY },
   { label: 'Phase', value: IGroupBy.PHASE },
+  { label: 'Due Date', value: IGroupBy.DUE_DATE },
 ];
 
 const LOCALSTORAGE_GROUP_KEY = 'worklenz.kanban.group_by';

@@ -13,7 +13,7 @@ import { setGroupBy } from '@features/group-by-filter-dropdown/group-by-filter-d
 const GroupByFilterDropdown = ({ position }: { position: 'list' | 'board' }) => {
   const dispatch = useAppDispatch();
 
-  type GroupTypes = 'status' | 'priority' | 'phase' | 'members' | 'list';
+  type GroupTypes = 'status' | 'priority' | 'phase' | 'members' | 'due_date' | 'list';
 
   const [activeGroup, setActiveGroup] = useState<GroupTypes>('status');
 
@@ -43,6 +43,7 @@ const GroupByFilterDropdown = ({ position }: { position: 'list' | 'board' }) => 
       label: phase ? phase?.phase : t('phaseText'),
     },
     { key: 'members', value: 'members', label: t('memberText') },
+    { key: 'due_date', value: 'due_date', label: t('dueDateText') },
     { key: 'list', value: 'list', label: t('listText') },
   ];
 
