@@ -4938,23 +4938,27 @@ BEGIN
                                                 (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-        -- Use existing organization if present (single-organization mode)
-        SELECT id INTO _organization_id FROM organizations LIMIT 1;
+        -- Determine organization: if user already owns an organization use that; else if any organization exists reuse existing org (do NOT create new), otherwise create organization for first user
+        SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
         IF _organization_id IS NOT NULL THEN
             _org_existing := TRUE;
-        END IF;
-
-        IF _organization_id IS NULL THEN
-        --insert organization data
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                       trial_expire_date, subscription_status, license_type_id)
-        VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-        RETURNING id INTO _organization_id;
+        ELSE
+            IF EXISTS(SELECT 1 FROM organizations) THEN
+                -- reuse the existing organization (first org) for joining users
+                _org_existing := TRUE;
+                SELECT id INTO _organization_id FROM organizations LIMIT 1;
+            ELSE
+                -- no organizations exist -> create one for the first user
+                INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                               trial_expire_date, subscription_status, license_type_id)
+                VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                    'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+                RETURNING id INTO _organization_id;
+            END IF;
         END IF;
 
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _user_id, _organization_id)
+    VALUES (_name, (CASE WHEN _org_existing THEN (SELECT user_id FROM organizations WHERE id = _organization_id) ELSE _user_id END), _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -5036,25 +5040,29 @@ BEGIN
                  (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-    -- In single-organization mode: reuse the existing organization if any; otherwise create one
-    SELECT id INTO _organization_id FROM organizations LIMIT 1;
+    -- Determine organization: if user already owns an organization use that; else if any organization exists reuse existing org (do NOT create new), otherwise create organization for first user
+    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
     IF _organization_id IS NOT NULL THEN
         _org_existing := TRUE;
-    END IF;
-
-    IF _organization_id IS NULL THEN
-        -- insert organization data (first user creates the organization)
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                                   trial_expire_date, subscription_status, license_type_id)
-        VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-        RETURNING id INTO _organization_id;
+    ELSE
+        IF EXISTS(SELECT 1 FROM organizations) THEN
+            -- reuse the existing organization (first org) for joining users
+            _org_existing := TRUE;
+            SELECT id INTO _organization_id FROM organizations LIMIT 1;
+        ELSE
+            -- no organizations exist -> create one for the first user
+            INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                                       trial_expire_date, subscription_status, license_type_id)
+            VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                    'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+            RETURNING id INTO _organization_id;
+        END IF;
     END IF;
 
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _user_id, _organization_id)
+    VALUES (_trimmed_team_name, (CASE WHEN _org_existing THEN (SELECT user_id FROM organizations WHERE id = _organization_id) ELSE _user_id END), _organization_id)
     RETURNING id INTO _team_id;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
