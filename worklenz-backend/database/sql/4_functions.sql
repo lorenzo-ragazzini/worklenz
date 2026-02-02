@@ -5030,7 +5030,9 @@ BEGIN
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'email', _email,
-            'google_id', _google_id
+            'google_id', _google_id,
+            'team_id', _team_id,
+            'setup_completed', _org_existing
            );
 END
 $$;
@@ -5160,7 +5162,8 @@ BEGIN
             'id', _user_id,
             'name', _trimmed_name,
             'email', _trimmed_email,
-            'team_id', _team_id
+            'team_id', _team_id,
+            'setup_completed', _org_existing
            );
 END;
 $$;
