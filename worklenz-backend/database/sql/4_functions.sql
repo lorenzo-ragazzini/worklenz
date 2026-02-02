@@ -4997,7 +4997,10 @@ BEGIN
 
     IF (is_null_or_empty(_body ->> 'team') OR is_null_or_empty(_body ->> 'member_id'))
     THEN
-        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        -- If org was reused, active_team already set above; otherwise set to newly created team
+        IF NOT _org_existing THEN
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
     ELSE
         -- Verify team member
         IF EXISTS(SELECT id
