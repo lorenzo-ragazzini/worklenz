@@ -5114,7 +5114,10 @@ BEGIN
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
     THEN
-        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        -- If org was reused, active_team already set to owner's primary team above; otherwise set to the newly created team
+        IF NOT _org_existing THEN
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
     ELSE
         IF NOT EXISTS(SELECT id
                       FROM email_invitations
