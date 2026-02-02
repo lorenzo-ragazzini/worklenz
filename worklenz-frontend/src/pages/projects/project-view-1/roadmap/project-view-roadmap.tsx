@@ -4,22 +4,85 @@ import { evt_project_roadmap_visit } from '../../../../shared/worklenz-analytics
 import { ViewMode } from 'gantt-task-react';
 import 'gantt-task-react/dist/index.css';
 import './project-view-roadmap.css';
-import { Flex } from '@/shared/antd-imports';
+import { Flex, Skeleton, Empty } from '@/shared/antd-imports';
 import { useAppSelector } from '../../../../hooks/useAppSelector';
+import { useAppDispatch } from '../../../../hooks/useAppDispatch';
 import { TimeFilter } from './time-filter';
 import RoadmapTable from './roadmap-table/roadmap-table';
 import RoadmapGrantChart from './roadmap-grant-chart';
+import {
+  fetchChartDates,
+  fetchRoadmapTasks,
+  clearRoadmapData,
+} from '../../../../features/roadmap/roadmap-slice';
 
 const ProjectViewRoadmap = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.Day);
   const { trackMixpanelEvent } = useMixpanelTracking();
+  const dispatch = useAppDispatch();
 
-  // get theme details
+  // Get theme details
   const themeMode = useAppSelector(state => state.themeReducer.mode);
+
+  // Get project ID from Redux
+  const projectId = useAppSelector(state => state.projectReducer.projectId);
+
+  // Get roadmap state
+  const { taskGroups, loading, error } = useAppSelector(state => state.roadmapReducer);
+
+  // Debug: log state
+  console.log('[Roadmap] loading:', loading, 'error:', error, 'taskGroups:', taskGroups.length);
 
   useEffect(() => {
     trackMixpanelEvent(evt_project_roadmap_visit);
   }, [trackMixpanelEvent]);
+
+  // Fetch roadmap data when projectId changes
+  useEffect(() => {
+    if (projectId) {
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+      dispatch(fetchChartDates({ projectId, timeZone }));
+      dispatch(
+        fetchRoadmapTasks({
+          projectId,
+          group: 'status',
+          timeZone,
+          isSubtasksInclude: true,
+        })
+      );
+    }
+
+    // Cleanup on unmount
+    return () => {
+      dispatch(clearRoadmapData());
+    };
+  }, [dispatch, projectId]);
+
+  if (loading) {
+    return (
+      <Flex vertical gap={16} style={{ padding: 16 }}>
+        <Skeleton active />
+        <Skeleton active />
+      </Flex>
+    );
+  }
+
+  if (error) {
+    return (
+      <Flex vertical align="center" justify="center" style={{ padding: 32 }}>
+        <Empty description={`Error loading roadmap: ${error}`} />
+      </Flex>
+    );
+  }
+
+  if (!taskGroups.length) {
+    return (
+      <Flex vertical align="center" justify="center" style={{ padding: 32 }}>
+        <Empty description="No tasks found in this project." />
+      </Flex>
+    );
+  }
 
   return (
     <Flex vertical className={`${themeMode === 'dark' ? 'dark-theme' : ''}`}>

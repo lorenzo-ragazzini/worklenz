@@ -1,29 +1,34 @@
 import { Gantt, Task, ViewMode } from 'gantt-task-react';
-import React from 'react';
+import { useMemo } from 'react';
 import { colors } from '../../../../styles/colors';
 import { useMixpanelTracking } from '../../../../hooks/useMixpanelTracking';
-import { evt_roadmap_drag_change_date, evt_roadmap_drag_move } from '../../../../shared/worklenz-analytics-events';
+import { evt_roadmap_drag_change_date } from '../../../../shared/worklenz-analytics-events';
 import {
-  NewTaskType,
   updateTaskDate,
   updateTaskProgress,
+  transformToGanttTasks,
 } from '../../../../features/roadmap/roadmap-slice';
 import { useAppSelector } from '../../../../hooks/useAppSelector';
 import { useAppDispatch } from '../../../../hooks/useAppDispatch';
 import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
+import { setSelectedTaskId } from '@/features/task-drawer/task-drawer.slice';
 
 type RoadmapGrantChartProps = {
   view: ViewMode;
 };
 
 const RoadmapGrantChart = ({ view }: RoadmapGrantChartProps) => {
-  // get task list from roadmap slice
-  const tasks = useAppSelector(state => state.roadmapReducer.tasksList);
+  // Get task groups from roadmap slice
+  const taskGroups = useAppSelector(state => state.roadmapReducer.taskGroups);
   const { trackMixpanelEvent } = useMixpanelTracking();
+
+  // Debug: log task groups to see what data we have
+  console.log('[Roadmap] taskGroups:', taskGroups);
+  console.log('[Roadmap] taskGroups with dates:', taskGroups.flatMap(g => g.tasks.filter(t => t.start_date && t.end_date)));
 
   const dispatch = useAppDispatch();
 
-  // column widths for each view mods
+  // Column widths for each view mode
   let columnWidth = 60;
   if (view === ViewMode.Year) {
     columnWidth = 350;
@@ -33,51 +38,59 @@ const RoadmapGrantChart = ({ view }: RoadmapGrantChartProps) => {
     columnWidth = 250;
   }
 
-  //   function to handle double click
-  const handleDoubleClick = () => {
+  // Function to handle double click - open task drawer
+  const handleDoubleClick = (task: Task) => {
+    dispatch(setSelectedTaskId(task.id));
     dispatch(setShowTaskDrawer(true));
   };
 
-  //   function to handle date change
+  // Function to handle date change
   const handleTaskDateChange = (task: Task) => {
     trackMixpanelEvent(evt_roadmap_drag_change_date);
     dispatch(updateTaskDate({ taskId: task.id, start: task.start, end: task.end }));
+    // TODO: Call API to persist date change
   };
 
-  //   function to handle progress change
+  // Function to handle progress change
   const handleTaskProgressChange = (task: Task) => {
     dispatch(updateTaskProgress({ taskId: task.id, progress: task.progress }));
+    // TODO: Call API to persist progress change
   };
 
-  // function to convert the tasklist comming form roadmap slice which has NewTaskType converted to Task type which is the default type of the tasks list in the grant chart
-  const flattenTasks = (tasks: NewTaskType[]): Task[] => {
-    const flattened: Task[] = [];
+  // Transform task groups to Gantt tasks using memoization
+  const ganttTasks = useMemo(() => {
+    const tasks = transformToGanttTasks(taskGroups);
 
-    const addTaskAndSubTasks = (task: NewTaskType, parentExpanded: boolean) => {
-      // add the task to the flattened list if its parent is expanded or it is a top-level task
-      if (parentExpanded) {
-        const { subTasks, isExpanded, ...rest } = task; // destructure to exclude properties not in Task type
-        flattened.push(rest as Task);
+    // If no tasks with dates, create a placeholder to show the timeline
+    if (tasks.length === 0) {
+      const today = new Date();
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      return [
+        {
+          id: 'placeholder',
+          name: '',
+          start: today,
+          end: endOfMonth,
+          progress: 0,
+          type: 'task' as const,
+          isDisabled: true,
+          styles: {
+            progressColor: 'transparent',
+            progressSelectedColor: 'transparent',
+            backgroundColor: 'transparent',
+            backgroundSelectedColor: 'transparent',
+          },
+        },
+      ];
+    }
 
-        // recursively add subtasks if this task is expanded
-        if (subTasks && isExpanded) {
-          subTasks.forEach(subTask => addTaskAndSubTasks(subTask as NewTaskType, true));
-        }
-      }
-    };
-
-    // top-level tasks are always visible, start with parentExpanded = true
-    tasks.forEach(task => addTaskAndSubTasks(task, true));
-
-    return flattened;
-  };
-
-  const flattenedTasksList = flattenTasks(tasks);
+    return tasks;
+  }, [taskGroups]);
 
   return (
     <div className="w-full max-w-[900px] overflow-x-auto">
       <Gantt
-        tasks={flattenedTasksList}
+        tasks={ganttTasks}
         viewMode={view}
         onDateChange={handleTaskDateChange}
         onProgressChange={handleTaskProgressChange}
