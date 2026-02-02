@@ -216,6 +216,14 @@ export default class TasksControllerV2 extends TasksControllerBase {
           WHERE custom_cols.value IS NOT NULL) AS custom_column_values`
       : "";
 
+    // Due date category for grouping
+    const dueDateCategoryQuery = groupBy === GroupBy.DUE_DATE
+      ? `, CASE
+          WHEN END_DATE IS NULL THEN 'no date'
+          ELSE categorize_due_date(END_DATE)
+        END AS due_date_category`
+      : "";
+
     const archivedFilter =
       options.archived === "true" ? "archived IS TRUE" : "archived IS FALSE";
 
@@ -331,7 +339,7 @@ export default class TasksControllerV2 extends TasksControllerBase {
              start_date,
              billable,
              schedule_id,
-             END_DATE ${customColumnsQuery} ${statusesQuery}
+             END_DATE ${dueDateCategoryQuery} ${customColumnsQuery} ${statusesQuery}
       FROM tasks t
       WHERE ${filters} ${searchQuery}
       ORDER BY ${sortFields}
@@ -383,6 +391,27 @@ export default class TasksControllerV2 extends TasksControllerBase {
           ORDER BY sort_index DESC;
         `;
         params = [projectId];
+        break;
+      case GroupBy.DUE_DATE:
+        // Return predefined due date categories
+        q = `
+          SELECT category_name as id,
+                 category_name as name,
+                 color_code,
+                 color_code_dark,
+                 sort_order
+          FROM (
+            VALUES
+              ('no date', 'No Date', '#a9a9a9', '#a9a9a9', 0),
+              ('overdue', 'Overdue', '#f5222d', '#f5222d', 1),
+              ('today', 'Today', '#1890ff', '#1890ff', 2),
+              ('tomorrow', 'Tomorrow', '#52c41a', '#52c41a', 3),
+              ('this week', 'This Week', '#faad14', '#faad14', 4),
+              ('next week', 'Next Week', '#722ed1', '#722ed1', 5),
+              ('later', 'Later', '#13c2c2', '#13c2c2', 6)
+          ) AS due_date_categories(category_name, name, color_code, color_code_dark, sort_order)
+          ORDER BY sort_order;
+        `;
         break;
 
       default:
@@ -499,6 +528,15 @@ export default class TasksControllerV2 extends TasksControllerBase {
         map[task.priority]?.tasks.push(task);
       } else if (groupBy === GroupBy.PHASE && task.phase_id) {
         map[task.phase_id]?.tasks.push(task);
+      } else if (groupBy === GroupBy.DUE_DATE) {
+        // Group by due date category (already calculated in SQL query)
+        const dueDateCategory = task.due_date_category || 'no_date';
+        if (map[dueDateCategory]) {
+          map[dueDateCategory].tasks.push(task);
+        } else {
+          // If category doesn't exist in map, add to unmapped
+          unmapped.push(task);
+        }
       } else {
         unmapped.push(task);
       }
@@ -1554,6 +1592,20 @@ export default class TasksControllerV2 extends TasksControllerBase {
     };
 
     return colorMaps[groupBy]?.[groupValue] || "#d9d9d9";
+  }
+
+  private static async getDueDateCategory(dueDate: string | null): Promise<string> {
+    try {
+      if (!dueDate) {
+        return 'no_date';
+      }
+
+      const result = await db.query("SELECT categorize_due_date($1) AS category", [dueDate]);
+      return result.rows[0]?.category || 'no_date';
+    } catch (error) {
+      log_error(`Error categorizing due date: ${error}`);
+      return 'no_date';
+    }
   }
 
   @HandleExceptions()

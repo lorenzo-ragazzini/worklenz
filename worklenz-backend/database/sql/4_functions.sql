@@ -6640,10 +6640,10 @@ DECLARE
 BEGIN
     -- Get the appropriate sort column based on grouping
     _sort_column := get_sort_column_name(_group_by);
-    
+
     -- Process each update record
-    FOR _update_record IN 
-        SELECT 
+    FOR _update_record IN
+        SELECT
             (item->>'task_id')::uuid as task_id,
             (item->>'sort_order')::int as sort_order,
             (item->>'status_id')::uuid as status_id,
@@ -6657,13 +6657,13 @@ BEGIN
                 'priority_id = COALESCE($3, priority_id), ' ||
                 'updated_at = CURRENT_TIMESTAMP ' ||
                 'WHERE id = $4';
-        
-        EXECUTE _sql USING 
+
+        EXECUTE _sql USING
             _update_record.sort_order,
             _update_record.status_id,
             _update_record.priority_id,
             _update_record.task_id;
-        
+
         -- Handle phase updates separately since it's in a different table
         IF _update_record.phase_id IS NOT NULL THEN
             INSERT INTO task_phase (task_id, phase_id)
@@ -6671,5 +6671,29 @@ BEGIN
             ON CONFLICT (task_id) DO UPDATE SET phase_id = _update_record.phase_id;
         END IF;
     END LOOP;
+END;
+$$;
+
+-- Function to categorize due dates for kanban grouping
+CREATE OR REPLACE FUNCTION categorize_due_date(due_date TIMESTAMPTZ) RETURNS TEXT
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    IF due_date IS NULL THEN
+        RETURN 'No Date';
+    ELSIF due_date < CURRENT_DATE THEN
+        RETURN 'Overdue';
+    ELSIF due_date = CURRENT_DATE THEN
+        RETURN 'Today';
+    ELSIF due_date = CURRENT_DATE + INTERVAL '1 day' THEN
+        RETURN 'Tomorrow';
+    ELSIF due_date <= CURRENT_DATE + INTERVAL '1 week' THEN
+        RETURN 'This Week';
+    ELSIF due_date <= CURRENT_DATE + INTERVAL '2 weeks' THEN
+        RETURN 'Next Week';
+    ELSE
+        RETURN 'Later';
+    END IF;
 END;
 $$;
