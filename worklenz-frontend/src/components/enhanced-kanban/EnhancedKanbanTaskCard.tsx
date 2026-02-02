@@ -187,33 +187,31 @@ const EnhancedKanbanTaskCard: React.FC<EnhancedKanbanTaskCardProps> = React.memo
             <Flex gap={4} align="center">
               <CustomDueDatePicker task={task} onDateChange={setDueDate} />
 
-              {/* Subtask Section - show for any task with subtasks or allow adding subtasks */}
-              {task.sub_tasks_count != null && Number(task.sub_tasks_count) >= 0 && (
-                <Tooltip title={task.sub_tasks_count > 0 ? t(`indicators.tooltips.subtasks${Number(task.sub_tasks_count) === 1 ? '' : '_plural'}`, { count: Number(task.sub_tasks_count) }) : t('addSubtask', 'Add Subtask')}>
-                  <Button
-                    onClick={handleSubtaskButtonClick}
-                    size="small"
+              {/* Subtask Section - always show subtask toggle for all tasks */}
+              <Tooltip title={task.sub_tasks_count > 0 ? t(`indicators.tooltips.subtasks${Number(task.sub_tasks_count) === 1 ? '' : '_plural'}`, { count: Number(task.sub_tasks_count) }) : t('addSubtask', 'Add Subtask')}>
+                <Button
+                  onClick={handleSubtaskButtonClick}
+                  size="small"
+                  style={{
+                    padding: 0,
+                  }}
+                  type="text"
+                >
+                  <Tag
+                    bordered={false}
                     style={{
-                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      margin: 0,
+                      backgroundColor: themeWiseColor('white', '#1e1e1e', themeMode),
                     }}
-                    type="text"
                   >
-                    <Tag
-                      bordered={false}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        margin: 0,
-                        backgroundColor: themeWiseColor('white', '#1e1e1e', themeMode),
-                      }}
-                    >
-                      <ForkOutlined rotate={90} />
-                      <span>{task.sub_tasks_count || 0}</span>
-                      {task.show_sub_tasks ? <CaretDownFilled /> : <CaretRightFilled />}
-                    </Tag>
-                  </Button>
-                </Tooltip>
-              )}
+                    <ForkOutlined rotate={90} />
+                    <span>{task.sub_tasks_count || 0}</span>
+                    {task.show_sub_tasks ? <CaretDownFilled /> : <CaretRightFilled />}
+                  </Tag>
+                </Button>
+              </Tooltip>
             </Flex>
           </Flex>
           <Flex vertical gap={8}>

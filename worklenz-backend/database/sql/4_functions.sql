@@ -6675,7 +6675,7 @@ END;
 $$;
 
 -- Function to categorize due dates for kanban grouping
-CREATE OR REPLACE FUNCTION categorize_due_date(due_date TIMESTAMP) RETURNS TEXT
+CREATE OR REPLACE FUNCTION categorize_due_date(due_date TIMESTAMPTZ) RETURNS TEXT
     LANGUAGE plpgsql
 AS
 $$

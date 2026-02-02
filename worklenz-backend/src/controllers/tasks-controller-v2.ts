@@ -216,6 +216,14 @@ export default class TasksControllerV2 extends TasksControllerBase {
           WHERE custom_cols.value IS NOT NULL) AS custom_column_values`
       : "";
 
+    // Due date category for grouping
+    const dueDateCategoryQuery = groupBy === GroupBy.DUE_DATE
+      ? `, CASE
+          WHEN END_DATE IS NULL THEN 'no date'
+          ELSE categorize_due_date(END_DATE)
+        END AS due_date_category`
+      : "";
+
     const archivedFilter =
       options.archived === "true" ? "archived IS TRUE" : "archived IS FALSE";
 
@@ -331,7 +339,7 @@ export default class TasksControllerV2 extends TasksControllerBase {
              start_date,
              billable,
              schedule_id,
-             END_DATE ${customColumnsQuery} ${statusesQuery}
+             END_DATE ${dueDateCategoryQuery} ${customColumnsQuery} ${statusesQuery}
       FROM tasks t
       WHERE ${filters} ${searchQuery}
       ORDER BY ${sortFields}
@@ -521,8 +529,8 @@ export default class TasksControllerV2 extends TasksControllerBase {
       } else if (groupBy === GroupBy.PHASE && task.phase_id) {
         map[task.phase_id]?.tasks.push(task);
       } else if (groupBy === GroupBy.DUE_DATE) {
-        // Group by due date category
-        const dueDateCategory = await this.getDueDateCategory(task.END_DATE);
+        // Group by due date category (already calculated in SQL query)
+        const dueDateCategory = task.due_date_category || 'no_date';
         if (map[dueDateCategory]) {
           map[dueDateCategory].tasks.push(task);
         } else {
