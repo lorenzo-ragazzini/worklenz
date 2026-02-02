@@ -181,8 +181,45 @@ Key translation files:
 - `project-view.json` - Project view tab labels
 - `settings.json` - Settings page labels
 
+## Roadmap API Integration
+
+The Roadmap feature is connected to real project data via the backend API.
+
+### API Endpoints
+| Endpoint | Description |
+|----------|-------------|
+| `GET /roadmap-gannt/chart-dates/:projectId` | Returns timeline date range and calendar data |
+| `GET /roadmap-gannt/task-groups/:projectId` | Returns tasks grouped by status/priority/phase |
+
+### Frontend Files
+| File | Purpose |
+|------|---------|
+| `src/api/roadmap/roadmap.api.service.ts` | API service for roadmap endpoints |
+| `src/features/roadmap/roadmap-slice.ts` | Redux slice with async thunks |
+| `src/pages/projects/project-view-1/roadmap/project-view-roadmap.tsx` | Main component |
+| `src/pages/projects/project-view-1/roadmap/roadmap-grant-chart.tsx` | Gantt chart component |
+| `src/pages/projects/project-view-1/roadmap/roadmap-table/roadmap-table.tsx` | Task table component |
+
+### Key Functions
+```typescript
+// Fetch roadmap data
+dispatch(fetchChartDates({ projectId, timeZone }));
+dispatch(fetchRoadmapTasks({ projectId, group: 'status', timeZone }));
+
+// Transform backend tasks to Gantt format
+import { transformToGanttTasks } from '@/features/roadmap/roadmap-slice';
+const ganttTasks = transformToGanttTasks(taskGroups);
+```
+
+### Backend Controller
+- Location: `worklenz-backend/src/controllers/project-roadmap/roadmap-tasks-controller-v2.ts`
+- Groups tasks by status, priority, or phase
+- Returns tasks with `start_date`, `end_date`, `status_category`
+
 ## Known Issues Fixed
 
 1. **Roadmap import errors**: The roadmap components had incorrect imports referencing `toggleTaskDrawer` from wrong slice. Fixed by using `setShowTaskDrawer` from `task-drawer.slice.ts`.
 
-2. **Roadmap dates**: Sample data in `roadmap-slice.ts` used hardcoded past dates. Fixed with `getRelativeDate()` helper function.
+2. **Roadmap dates**: Originally used hardcoded demo data. Now connected to real project data via API.
+
+3. **Roadmap API integration**: Frontend was not calling backend endpoints. Added `roadmap.api.service.ts` and async thunks in Redux slice.
