@@ -6681,19 +6681,19 @@ AS
 $$
 BEGIN
     IF due_date IS NULL THEN
-        RETURN 'no_date';
+        RETURN 'No Date';
     ELSIF due_date < CURRENT_DATE THEN
-        RETURN 'overdue';
+        RETURN 'Overdue';
     ELSIF due_date = CURRENT_DATE THEN
-        RETURN 'today';
+        RETURN 'Today';
     ELSIF due_date = CURRENT_DATE + INTERVAL '1 day' THEN
-        RETURN 'tomorrow';
+        RETURN 'Tomorrow';
     ELSIF due_date <= CURRENT_DATE + INTERVAL '1 week' THEN
-        RETURN 'this week';
+        RETURN 'This Week';
     ELSIF due_date <= CURRENT_DATE + INTERVAL '2 weeks' THEN
-        RETURN 'next week';
+        RETURN 'Next Week';
     ELSE
-        RETURN 'later';
+        RETURN 'Later';
     END IF;
 END;
 $$;

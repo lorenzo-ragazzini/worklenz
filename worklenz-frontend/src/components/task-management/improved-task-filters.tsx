@@ -364,7 +364,7 @@ const useFilterData = (position: 'board' | 'list'): FilterSection[] => {
             { id: 'priority', label: t('priorityText'), value: 'priority' },
             {
               id: 'phase',
-              label: filterData.project?.phase_label || t('phaseText'),
+              label: (filterData.project as any)?.phase_label || t('phaseText'),
               value: 'phase',
             },
             { id: 'due_date', label: t('dueDateText'), value: 'due_date' },
