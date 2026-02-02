@@ -5000,11 +5000,13 @@ DECLARE
     _trimmed_email     TEXT;
     _trimmed_name      TEXT;
     _trimmed_team_name TEXT;
+    _org_name          TEXT;
 BEGIN
 
     _trimmed_email = LOWER(TRIM((_body ->> 'email')));
     _trimmed_name = TRIM((_body ->> 'name'));
     _trimmed_team_name = TRIM((_body ->> 'team_name'));
+    _org_name = TRIM((_body ->> 'team_name'));
 
     -- check user exists
     IF EXISTS(SELECT email FROM users WHERE email = _trimmed_email)
@@ -5019,12 +5021,20 @@ BEGIN
                      (SELECT id FROM timezones WHERE name = 'UTC')))
     RETURNING id INTO _user_id;
 
-    --insert organization data
-    INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                               trial_expire_date, subscription_status, license_type_id)
-    VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-    RETURNING id INTO _organization_id;
+    -- Check if organization with same name exists and use it
+    SELECT id INTO _organization_id
+    FROM organizations
+    WHERE LOWER(organization_name) = LOWER(_org_name)
+    LIMIT 1;
+
+    IF _organization_id IS NULL THEN
+        --insert organization data
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                                   trial_expire_date, subscription_status, license_type_id)
+        VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+        RETURNING id INTO _organization_id;
+    END IF;
 
 
     -- insert team
