@@ -505,7 +505,7 @@ BEGIN
     _trimmed_team_name = TRIM(_name);
     -- get owner id
     SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
-    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
+    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
@@ -553,7 +553,7 @@ BEGIN
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id)::UUID)
+    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id LIMIT 1)::UUID)
     RETURNING id INTO _team_id;
 
     -- insert default roles
