@@ -505,7 +505,7 @@ BEGIN
     _trimmed_team_name = TRIM(_name);
     -- get owner id
     SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
-    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
+    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
@@ -553,7 +553,7 @@ BEGIN
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id)::UUID)
+    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id LIMIT 1)::UUID)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -4928,6 +4928,10 @@ DECLARE
     _name            TEXT;
     _email           TEXT;
     _google_id       TEXT;
+
+    _org_owner       UUID;
+    _owner_team_id   UUID;
+    _owner_role_default UUID;
 BEGIN
     _name = (_body ->> 'displayName')::TEXT;
     _email = (_body ->> 'email')::TEXT;
@@ -4938,23 +4942,27 @@ BEGIN
                                                 (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-        -- Use existing organization if present (single-organization mode)
-        SELECT id INTO _organization_id FROM organizations LIMIT 1;
+        -- Determine organization: if user already owns an organization use that; else if any organization exists reuse existing org (do NOT create new), otherwise create organization for first user
+        SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
         IF _organization_id IS NOT NULL THEN
             _org_existing := TRUE;
-        END IF;
-
-        IF _organization_id IS NULL THEN
-        --insert organization data
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                       trial_expire_date, subscription_status, license_type_id)
-        VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-        RETURNING id INTO _organization_id;
+        ELSE
+            IF EXISTS(SELECT 1 FROM organizations) THEN
+                -- reuse the existing organization (first org) for joining users
+                _org_existing := TRUE;
+                SELECT id INTO _organization_id FROM organizations LIMIT 1;
+            ELSE
+                -- no organizations exist -> create one for the first user
+                INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                               trial_expire_date, subscription_status, license_type_id)
+                VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                    'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+                RETURNING id INTO _organization_id;
+            END IF;
         END IF;
 
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _user_id, _organization_id)
+    VALUES (_name, (CASE WHEN _org_existing THEN (SELECT user_id FROM organizations WHERE id = _organization_id) ELSE _user_id END), _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -4965,9 +4973,34 @@ BEGIN
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_user_id, _team_id, _role_id);
 
+    -- ensure organization has a name when reusing
+    IF is_null_or_empty((SELECT organization_name FROM organizations WHERE id = _organization_id LIMIT 1)) IS TRUE THEN
+        UPDATE organizations SET organization_name = TRIM((_body ->> 'team_name')::TEXT) WHERE id = _organization_id;
+    END IF;
+
+    -- when reusing existing org, add user to the organization's primary team for visibility and set active_team
+    IF _org_existing THEN
+        SELECT user_id INTO _org_owner FROM organizations WHERE id = _organization_id LIMIT 1;
+        SELECT id INTO _owner_team_id FROM teams WHERE user_id = _org_owner LIMIT 1;
+        SELECT id INTO _owner_role_default FROM roles WHERE team_id = _owner_team_id AND default_role IS TRUE LIMIT 1;
+        IF _owner_team_id IS NOT NULL THEN
+            INSERT INTO team_members (user_id, team_id, role_id)
+            VALUES (_user_id, _owner_team_id, COALESCE(_owner_role_default, (SELECT id FROM roles WHERE team_id = _owner_team_id LIMIT 1)))
+            ON CONFLICT DO NOTHING;
+            UPDATE users SET active_team = _owner_team_id WHERE id = _user_id;
+        ELSE
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
+    ELSE
+        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+    END IF;
+
     IF (is_null_or_empty(_body ->> 'team') OR is_null_or_empty(_body ->> 'member_id'))
     THEN
-        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        -- If org was reused, active_team already set above; otherwise set to newly created team
+        IF NOT _org_existing THEN
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
     ELSE
         -- Verify team member
         IF EXISTS(SELECT id
@@ -4997,7 +5030,9 @@ BEGIN
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'email', _email,
-            'google_id', _google_id
+            'google_id', _google_id,
+            'team_id', _team_id,
+            'setup_completed', _org_existing
            );
 END
 $$;
@@ -5016,6 +5051,10 @@ DECLARE
     _trimmed_name      TEXT;
     _trimmed_team_name TEXT;
     _org_name          TEXT;
+
+    _org_owner       UUID;
+    _owner_team_id   UUID;
+    _owner_role_default UUID;
 BEGIN
 
     _trimmed_email = LOWER(TRIM((_body ->> 'email')));
@@ -5036,30 +5075,54 @@ BEGIN
                  (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-    -- In single-organization mode: reuse the existing organization if any; otherwise create one
-    SELECT id INTO _organization_id FROM organizations LIMIT 1;
+    -- Determine organization: if user already owns an organization use that; else if any organization exists reuse existing org (do NOT create new), otherwise create organization for first user
+    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
     IF _organization_id IS NOT NULL THEN
         _org_existing := TRUE;
-    END IF;
-
-    IF _organization_id IS NULL THEN
-        -- insert organization data (first user creates the organization)
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                                   trial_expire_date, subscription_status, license_type_id)
-        VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-        RETURNING id INTO _organization_id;
+    ELSE
+        IF EXISTS(SELECT 1 FROM organizations) THEN
+            -- reuse the existing organization (first org) for joining users
+            _org_existing := TRUE;
+            SELECT id INTO _organization_id FROM organizations LIMIT 1;
+        ELSE
+            -- no organizations exist -> create one for the first user
+            INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                                       trial_expire_date, subscription_status, license_type_id)
+            VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                    'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+            RETURNING id INTO _organization_id;
+        END IF;
     END IF;
 
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _user_id, _organization_id)
+    VALUES (_trimmed_team_name, (CASE WHEN _org_existing THEN (SELECT user_id FROM organizations WHERE id = _organization_id) ELSE _user_id END), _organization_id)
     RETURNING id INTO _team_id;
+
+    -- ensure organization has a name
+    IF is_null_or_empty((SELECT organization_name FROM organizations WHERE id = _organization_id LIMIT 1)) IS TRUE THEN
+        UPDATE organizations SET organization_name = _org_name WHERE id = _organization_id;
+    END IF;
+
+    -- when reusing existing org, add user to the organization's primary team for visibility
+    IF _org_existing THEN
+        SELECT user_id INTO _org_owner FROM organizations WHERE id = _organization_id LIMIT 1;
+        SELECT id INTO _owner_team_id FROM teams WHERE user_id = _org_owner LIMIT 1;
+        SELECT id INTO _owner_role_default FROM roles WHERE team_id = _owner_team_id AND default_role IS TRUE LIMIT 1;
+        IF _owner_team_id IS NOT NULL THEN
+            INSERT INTO team_members (user_id, team_id, role_id)
+            VALUES (_user_id, _owner_team_id, COALESCE(_owner_role_default, (SELECT id FROM roles WHERE team_id = _owner_team_id LIMIT 1)))
+            ON CONFLICT DO NOTHING;
+        END IF;
+    END IF;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
     THEN
-        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        -- If org was reused, active_team already set to owner's primary team above; otherwise set to the newly created team
+        IF NOT _org_existing THEN
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
     ELSE
         IF NOT EXISTS(SELECT id
                       FROM email_invitations
@@ -5099,7 +5162,8 @@ BEGIN
             'id', _user_id,
             'name', _trimmed_name,
             'email', _trimmed_email,
-            'team_id', _team_id
+            'team_id', _team_id,
+            'setup_completed', _org_existing
            );
 END;
 $$;
