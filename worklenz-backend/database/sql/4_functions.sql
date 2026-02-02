@@ -4933,16 +4933,21 @@ BEGIN
     _google_id = (_body ->> 'id');
 
     INSERT INTO users (name, email, google_id, timezone_id)
-    VALUES (_name, _email, _google_id, COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone')),
-                                                (SELECT id FROM timezones WHERE name = 'UTC')))
+    VALUES (_name, _email, _google_id, COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone') LIMIT 1),
+                                                (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-    --insert organization data
-    INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                               trial_expire_date, subscription_status, license_type_id)
-    VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+        -- Use existing organization if present (single-organization mode)
+        SELECT id INTO _organization_id FROM organizations LIMIT 1;
+
+        IF _organization_id IS NULL THEN
+        --insert organization data
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                       trial_expire_date, subscription_status, license_type_id)
+        VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
             'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-    RETURNING id INTO _organization_id;
+        RETURNING id INTO _organization_id;
+        END IF;
 
     INSERT INTO teams (name, user_id, organization_id)
     VALUES (_name, _user_id, _organization_id)
@@ -5015,20 +5020,17 @@ BEGIN
     END IF;
 
     -- insert user
-    INSERT INTO users (name, email, password, timezone_id)
-    VALUES (_trimmed_name, _trimmed_email, (_body ->> 'password'),
-            COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone')),
-                     (SELECT id FROM timezones WHERE name = 'UTC')))
+        INSERT INTO users (name, email, password, timezone_id)
+        VALUES (_trimmed_name, _trimmed_email, (_body ->> 'password'),
+            COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone') LIMIT 1),
+                 (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
-    -- Check if organization with same name exists and use it
-    SELECT id INTO _organization_id
-    FROM organizations
-    WHERE LOWER(organization_name) = LOWER(_org_name)
-    LIMIT 1;
+    -- In single-organization mode: reuse the existing organization if any; otherwise create one
+    SELECT id INTO _organization_id FROM organizations LIMIT 1;
 
     IF _organization_id IS NULL THEN
-        --insert organization data
+        -- insert organization data (first user creates the organization)
         INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
                                    trial_expire_date, subscription_status, license_type_id)
         VALUES (_user_id, _org_name, NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
