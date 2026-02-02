@@ -4928,6 +4928,10 @@ DECLARE
     _name            TEXT;
     _email           TEXT;
     _google_id       TEXT;
+
+    _org_owner       UUID;
+    _owner_team_id   UUID;
+    _owner_role_default UUID;
 BEGIN
     _name = (_body ->> 'displayName')::TEXT;
     _email = (_body ->> 'email')::TEXT;
@@ -5020,6 +5024,10 @@ DECLARE
     _trimmed_name      TEXT;
     _trimmed_team_name TEXT;
     _org_name          TEXT;
+
+    _org_owner       UUID;
+    _owner_team_id   UUID;
+    _owner_role_default UUID;
 BEGIN
 
     _trimmed_email = LOWER(TRIM((_body ->> 'email')));
@@ -5064,6 +5072,23 @@ BEGIN
     INSERT INTO teams (name, user_id, organization_id)
     VALUES (_trimmed_team_name, (CASE WHEN _org_existing THEN (SELECT user_id FROM organizations WHERE id = _organization_id) ELSE _user_id END), _organization_id)
     RETURNING id INTO _team_id;
+
+    -- ensure organization has a name
+    IF is_null_or_empty((SELECT organization_name FROM organizations WHERE id = _organization_id LIMIT 1)) IS TRUE THEN
+        UPDATE organizations SET organization_name = _org_name WHERE id = _organization_id;
+    END IF;
+
+    -- when reusing existing org, add user to the organization's primary team for visibility
+    IF _org_existing THEN
+        SELECT user_id INTO _org_owner FROM organizations WHERE id = _organization_id LIMIT 1;
+        SELECT id INTO _owner_team_id FROM teams WHERE user_id = _org_owner LIMIT 1;
+        SELECT id INTO _owner_role_default FROM roles WHERE team_id = _owner_team_id AND default_role IS TRUE LIMIT 1;
+        IF _owner_team_id IS NOT NULL THEN
+            INSERT INTO team_members (user_id, team_id, role_id)
+            VALUES (_user_id, _owner_team_id, COALESCE(_owner_role_default, (SELECT id FROM roles WHERE team_id = _owner_team_id LIMIT 1)))
+            ON CONFLICT DO NOTHING;
+        END IF;
+    END IF;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
     THEN
