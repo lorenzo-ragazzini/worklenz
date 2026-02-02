@@ -4923,6 +4923,7 @@ DECLARE
     _organization_id UUID;
     _team_id         UUID;
     _role_id         UUID;
+    _org_existing    BOOLEAN := FALSE;
 
     _name            TEXT;
     _email           TEXT;
@@ -4939,6 +4940,9 @@ BEGIN
 
         -- Use existing organization if present (single-organization mode)
         SELECT id INTO _organization_id FROM organizations LIMIT 1;
+        IF _organization_id IS NOT NULL THEN
+            _org_existing := TRUE;
+        END IF;
 
         IF _organization_id IS NULL THEN
         --insert organization data
@@ -4985,6 +4989,11 @@ BEGIN
         END IF;
     END IF;
 
+    -- If organization already existed, mark account setup as completed for this user
+    IF _org_existing THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
+    END IF;
+
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'email', _email,
@@ -5000,6 +5009,7 @@ $$
 DECLARE
     _user_id           UUID;
     _organization_id   UUID;
+    _org_existing      BOOLEAN := FALSE;
     _team_id           UUID;
     _role_id           UUID;
     _trimmed_email     TEXT;
@@ -5028,6 +5038,9 @@ BEGIN
 
     -- In single-organization mode: reuse the existing organization if any; otherwise create one
     SELECT id INTO _organization_id FROM organizations LIMIT 1;
+    IF _organization_id IS NOT NULL THEN
+        _org_existing := TRUE;
+    END IF;
 
     IF _organization_id IS NULL THEN
         -- insert organization data (first user creates the organization)
@@ -5056,6 +5069,11 @@ BEGIN
             RAISE 'ERROR_INVALID_JOINING_EMAIL';
         END IF;
         UPDATE users SET active_team = (_body ->> 'invited_team_id')::UUID WHERE id = _user_id;
+    END IF;
+
+    -- If organization already existed, mark account setup as completed for this user
+    IF _org_existing THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
     END IF;
 
     -- insert default roles
