@@ -4973,6 +4973,28 @@ BEGIN
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_user_id, _team_id, _role_id);
 
+    -- ensure organization has a name when reusing
+    IF is_null_or_empty((SELECT organization_name FROM organizations WHERE id = _organization_id LIMIT 1)) IS TRUE THEN
+        UPDATE organizations SET organization_name = TRIM((_body ->> 'team_name')::TEXT) WHERE id = _organization_id;
+    END IF;
+
+    -- when reusing existing org, add user to the organization's primary team for visibility and set active_team
+    IF _org_existing THEN
+        SELECT user_id INTO _org_owner FROM organizations WHERE id = _organization_id LIMIT 1;
+        SELECT id INTO _owner_team_id FROM teams WHERE user_id = _org_owner LIMIT 1;
+        SELECT id INTO _owner_role_default FROM roles WHERE team_id = _owner_team_id AND default_role IS TRUE LIMIT 1;
+        IF _owner_team_id IS NOT NULL THEN
+            INSERT INTO team_members (user_id, team_id, role_id)
+            VALUES (_user_id, _owner_team_id, COALESCE(_owner_role_default, (SELECT id FROM roles WHERE team_id = _owner_team_id LIMIT 1)))
+            ON CONFLICT DO NOTHING;
+            UPDATE users SET active_team = _owner_team_id WHERE id = _user_id;
+        ELSE
+            UPDATE users SET active_team = _team_id WHERE id = _user_id;
+        END IF;
+    ELSE
+        UPDATE users SET active_team = _team_id WHERE id = _user_id;
+    END IF;
+
     IF (is_null_or_empty(_body ->> 'team') OR is_null_or_empty(_body ->> 'member_id'))
     THEN
         UPDATE users SET active_team = _team_id WHERE id = _user_id;
