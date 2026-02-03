@@ -31,14 +31,22 @@ const initialState: scheduleState = {
   dayCount: 0,
 };
 
-export const fetchTeamData = createAsyncThunk('schedule/fetchTeamData', async () => {
-  const response = await scheduleAPIService.fetchScheduleMembers();
-  if (!response.done) {
-    throw new Error('Failed to fetch team data');
+export const fetchTeamData = createAsyncThunk(
+  'schedule/fetchTeamData',
+  async (_: void, thunkAPI) => {
+    const response = await scheduleAPIService.fetchScheduleMembers();
+    if (!response.done) {
+      throw new Error('Failed to fetch team data');
+    }
+    const data = response.body;
+    // Return only the current user
+    const currentUserId = (thunkAPI.getState() as import('@/app/store').RootState).userReducer.id;
+    const filtered = Array.isArray(data)
+      ? data.filter((m: any) => m.id === currentUserId || m.team_member_id === currentUserId)
+      : data;
+    return filtered;
   }
-  const data = response.body;
-  return data;
-});
+);
 
 export const fetchDateList = createAsyncThunk(
   'schedule/fetchDateList',
