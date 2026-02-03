@@ -360,8 +360,8 @@ BEGIN
     _sort_order = 1;
     FOR _task IN SELECT * FROM JSON_ARRAY_ELEMENTS((_body ->> 'tasks')::JSON)
         LOOP
-            INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order)
-            VALUES (TRIM('"' FROM _task)::TEXT, (SELECT id FROM task_priorities WHERE value = 1), _project_id, _user_id,
+                INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order)
+                VALUES (TRIM('"' FROM _task)::TEXT, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1), _project_id, _user_id,
                     _default_status_id, _sort_order)
             RETURNING id INTO _task_id;
             _sort_order = _sort_order + 1;
@@ -465,10 +465,10 @@ DECLARE
     _task_id UUID;
 BEGIN
 
-    INSERT INTO tasks (name, end_date, priority_id, project_id, reporter_id, status_id, sort_order)
-    VALUES (TRIM((_body ->> 'name')::TEXT),
+        INSERT INTO tasks (name, end_date, priority_id, project_id, reporter_id, status_id, sort_order)
+        VALUES (TRIM((_body ->> 'name')::TEXT),
             (_body ->> 'end_date')::TIMESTAMP,
-            (SELECT id FROM task_priorities WHERE value = 1),
+            (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1),
             (_body ->> 'project_id')::UUID,
             (_body ->> 'reporter_id')::UUID,
 
@@ -889,7 +889,7 @@ BEGIN
                AND category_id IN (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)
              LIMIT 1)
         );
-    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1));
+    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1));
 
     INSERT INTO cpt_tasks(name, priority_id, template_id, status_id, parent_task_id, sort_order, task_no)
     VALUES (TRIM((_body ->> 'name')::TEXT),
@@ -930,7 +930,7 @@ BEGIN
            AND category_id IN (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)
          LIMIT 1)
         );
-    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1));
+    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1));
     _start_date = (_body ->> 'start_date')::TIMESTAMP;
     _end_date = (_body ->> 'end_date')::TIMESTAMP;
 
@@ -967,7 +967,7 @@ BEGIN
     INSERT INTO tasks (name, done, priority_id, project_id, reporter_id, start_date, end_date, total_minutes,
                        description, parent_task_id, status_id, sort_order)
     VALUES (TRIM((_body ->> 'name')::TEXT), (FALSE),
-            COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1)),
+            COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1)),
             (_body ->> 'project_id')::UUID,
             (_body ->> 'reporter_id')::UUID,
             (_body ->> 'start')::TIMESTAMPTZ,
@@ -4579,9 +4579,9 @@ BEGIN
     FOR _task IN SELECT * FROM JSON_ARRAY_ELEMENTS(_tasks)
         LOOP
             _max_sort = _max_sort + 1;
-            INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order, total_minutes)
-            VALUES (TRIM((_task ->> 'name')::TEXT),
-                    (SELECT id FROM task_priorities WHERE value = 1),
+                INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order, total_minutes)
+                VALUES (TRIM((_task ->> 'name')::TEXT),
+                    (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1),
                     _project_id,
                     _user_id,
 
