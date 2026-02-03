@@ -4973,6 +4973,16 @@ BEGIN
         VALUES (_user_id, _team_id, _admin_role_id);
     END IF;
 
+    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
+    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
+    THEN
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
+        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
+        FROM organizations
+        WHERE id = _organization_id
+        ON CONFLICT (user_id) DO NOTHING;
+    END IF;
+
     IF (is_null_or_empty(_body ->> 'team') OR is_null_or_empty(_body ->> 'member_id'))
     THEN
         UPDATE users SET active_team = _team_id WHERE id = _user_id;
@@ -5084,6 +5094,16 @@ BEGIN
     ELSE
         INSERT INTO team_members (user_id, team_id, role_id)
         VALUES (_user_id, _team_id, _admin_role_id);
+    END IF;
+
+    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
+    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
+    THEN
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
+        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
+        FROM organizations
+        WHERE id = _organization_id
+        ON CONFLICT (user_id) DO NOTHING;
     END IF;
 
     -- update team member table with user id if invited
