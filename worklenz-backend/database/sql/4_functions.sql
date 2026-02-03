@@ -505,7 +505,16 @@ BEGIN
     _trimmed_team_name = TRIM(_name);
     -- get owner id (set to creator)
     _owner_id := _user_id;
+    -- Try to find an organization owned by the user first.
     SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
+    -- If the user is not an organization owner, fall back to the organization
+    -- of the user's active team (if any).
+    IF is_null_or_empty(_organization_id) THEN
+        SELECT organization_id INTO _organization_id
+        FROM teams
+        WHERE id = (SELECT active_team FROM users WHERE id = _user_id)
+        LIMIT 1;
+    END IF;
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
@@ -551,9 +560,24 @@ BEGIN
     -- get owner id (set to creator)
     _owner_id := _user_id;
 
+    -- Resolve organization: prefer the organization of the provided current team
+    -- when available, otherwise fall back to any organization owned by the user.
+    DECLARE _org_from_current_team UUID := NULL;
+    BEGIN
+        IF _current_team_id IS NOT NULL THEN
+            SELECT organization_id INTO _org_from_current_team FROM teams WHERE id = _current_team_id LIMIT 1;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        _org_from_current_team := NULL;
+    END;
+
+    IF is_null_or_empty(_org_from_current_team) THEN
+        SELECT id INTO _org_from_current_team FROM organizations WHERE user_id = _owner_id LIMIT 1;
+    END IF;
+
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id)::UUID)
+    VALUES (_trimmed_team_name, _owner_id, _org_from_current_team)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -1304,7 +1328,7 @@ BEGIN
         SELECT 
             utd.*,
             t.name AS team_name,
-            t.user_id AS owner_id,
+            COALESCE(o.user_id, t.user_id) AS owner_id,
             o.subscription_status,
             o.license_type_id,
             o.trial_expire_date
