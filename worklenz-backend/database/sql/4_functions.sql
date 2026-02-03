@@ -503,8 +503,8 @@ DECLARE
 BEGIN
 
     _trimmed_team_name = TRIM(_name);
-    -- get owner id
-    SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+    -- get owner id (set to creator)
+    _owner_id := _user_id;
     SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
 
     -- insert team
@@ -548,8 +548,8 @@ BEGIN
 
     _trimmed_team_name = TRIM(_name);
 
-    -- get owner id
-    SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+    -- get owner id (set to creator)
+    _owner_id := _user_id;
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
