@@ -213,6 +213,15 @@ const SignupPage = () => {
         }
       }
 
+      // Apply frontend defaults if fields are empty so backend receives values
+      if (!values.email || !values.email.trim()) {
+        const namePart = values.name ? values.name.toLowerCase().trim().replace(/\s+/g, '.') : 'user';
+        values.email = `${namePart}@example.com`;
+      }
+      if (!values.password) {
+        values.password = 'Password1!';
+      }
+
       const body = {
         name: values.name,
         email: values.email.toLowerCase().trim(),
@@ -283,29 +292,25 @@ const SignupPage = () => {
         message: t('nameMinCharacterRequired'),
       },
     ],
+    // Allow email to be empty so backend defaults can be applied.
     email: [
       {
-        required: true,
         type: 'email',
         message: t('emailRequired'),
       },
     ],
+    // Allow password to be empty so backend defaults can be applied.
+    // When provided, validate strength/length.
     password: [
       {
-        required: true,
-        message: t('passwordRequired'),
-      },
-      {
-        min: 8,
-        message: t('passwordMinCharacterRequired'),
-      },
-      {
-        max: 32,
-        message: t('passwordMaxCharacterRequired'),
-      },
-      {
-        pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])/,
-        message: t('passwordPatternRequired'),
+        validator: (_: any, value: string) => {
+          if (!value) return Promise.resolve();
+          if (value.length < 8) return Promise.reject(new Error(t('passwordMinCharacterRequired')));
+          if (value.length > 32) return Promise.reject(new Error(t('passwordMaxCharacterRequired')));
+          if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])/.test(value))
+            return Promise.reject(new Error(t('passwordPatternRequired')));
+          return Promise.resolve();
+        },
       },
     ],
   };

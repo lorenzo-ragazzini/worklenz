@@ -12,7 +12,7 @@ export async function getTeamMemberCount(userId: string) {
             WHERE tmiv.team_id IN
                     (SELECT id
                     FROM teams
-                    WHERE teams.user_id = $1)) AS total`;
+                    WHERE teams.organization_id IN (SELECT id FROM organizations WHERE user_id = $1))) AS total`;
   const result = await db.query(q, [userId]);
   const [data] = result.rows;
   data.user_count = data.user_count - data.free_count;
@@ -29,7 +29,7 @@ export async function getActiveTeamMemberCount(userId: string) {
                 SELECT DISTINCT tmiv.email FROM team_member_info_view tmiv
                   JOIN teams t ON tmiv.team_id = t.id
                   JOIN team_members tm ON tmiv.team_member_id = tm.id
-                WHERE t.user_id = $1 AND tm.active is true
+                WHERE t.organization_id IN (SELECT id FROM organizations WHERE user_id = $1) AND tm.active is true
               ) AS total;`;
   const result = await db.query(q, [userId]);
   const [data] = result.rows;
@@ -53,10 +53,10 @@ export async function checkTeamSubscriptionStatus(team_id: string) {
                         WHERE tmiv.team_id IN
                               (SELECT id
                               FROM teams
-                              WHERE teams.user_id = ud.user_id)) AS current_count
+                              WHERE teams.organization_id = ud.id)) AS current_count
                     FROM organizations ud
-                LEFT JOIN licensing_user_subscriptions lus ON lus.user_id = ud.user_id
-        WHERE ud.user_id = (SELECT user_id FROM teams WHERE id = $1);`;
+                  LEFT JOIN licensing_user_subscriptions lus ON lus.user_id = ud.user_id
+              WHERE ud.id = (SELECT organization_id FROM teams WHERE id = $1);`;
     const result = await db.query(q, [team_id]);
     const [data] = result.rows;
     return data;
@@ -86,7 +86,7 @@ export async function getOwnerIdByTeam(teamId: string) {
 export async function getCurrentProjectsCount(owner_id: string) {
   const projects_counts_q = `SELECT COUNT(*)
     FROM projects
-    WHERE team_id IN (SELECT id FROM teams WHERE owner_id = $1);`;
+    WHERE team_id IN (SELECT id FROM teams WHERE organization_id IN (SELECT id FROM organizations WHERE user_id = $1));`;
   const result = await db.query(projects_counts_q, [owner_id]);
   const [data] = result.rows;
 
@@ -96,7 +96,7 @@ export async function getCurrentProjectsCount(owner_id: string) {
 export async function getUsedStorage(owner_id: string) {
   const storage_q = `SELECT (COALESCE(SUM(size), 0)) AS used_storage
     FROM task_attachments
-    WHERE team_id IN (SELECT id FROM teams WHERE user_id = $1);`;
+    WHERE team_id IN (SELECT id FROM teams WHERE organization_id IN (SELECT id FROM organizations WHERE user_id = $1));`;
   const result = await db.query(storage_q, [owner_id]);
   const [data] = result.rows;
 
