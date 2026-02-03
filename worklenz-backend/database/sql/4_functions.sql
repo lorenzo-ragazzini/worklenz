@@ -4708,11 +4708,11 @@ AS
 $$
 DECLARE
 BEGIN
-    RETURN (SELECT _status_id IN (SELECT id
-                                  FROM task_statuses
-                                  WHERE project_id = _project_id
-                                    AND category_id =
-                                        (SELECT id FROM sys_task_status_categories WHERE is_done IS TRUE)));
+        RETURN (SELECT _status_id IN (SELECT id
+                                                                    FROM task_statuses
+                                                                    WHERE project_id = _project_id
+                                                                        AND category_id IN
+                                                                                (SELECT id FROM sys_task_status_categories WHERE is_done IS TRUE)));
 END
 $$;
 
@@ -4722,11 +4722,11 @@ AS
 $$
 DECLARE
 BEGIN
-    RETURN (SELECT _status_id IN (SELECT id
-                                  FROM task_statuses
-                                  WHERE project_id = _project_id
-                                    AND category_id =
-                                        (SELECT id FROM sys_task_status_categories WHERE is_doing IS TRUE)));
+        RETURN (SELECT _status_id IN (SELECT id
+                                                                    FROM task_statuses
+                                                                    WHERE project_id = _project_id
+                                                                        AND category_id IN
+                                                                                (SELECT id FROM sys_task_status_categories WHERE is_doing IS TRUE)));
 END
 $$;
 
@@ -4801,7 +4801,7 @@ BEGIN
     RETURN (SELECT _status_id IN (SELECT id
                                   FROM task_statuses
                                   WHERE project_id = _project_id
-                                    AND category_id =
+                                    AND category_id IN
                                         (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)));
 END
 $$;
