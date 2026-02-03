@@ -5028,10 +5028,19 @@ BEGIN
         END IF;
     END IF;
 
+    -- If the created user was added to an existing organization's team (i.e. the org owner
+    -- is different from the created user), mark their setup as completed so the frontend
+    -- doesn't prompt them to create a new organization.
+    IF _team_owner IS NOT NULL AND _team_owner <> _user_id THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
+    END IF;
+
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'email', _email,
-            'google_id', _google_id
+            'google_id', _google_id,
+            'team_id', _team_id,
+            'setup_completed', (SELECT setup_completed FROM users WHERE id = _user_id)
            );
 END
 $$;
@@ -5151,11 +5160,19 @@ BEGIN
           AND team_member_id = (_body ->> 'team_member_id')::UUID;
     END IF;
 
+    -- If the created user was added to an existing organization's team (i.e. the org owner
+    -- is different from the created user), mark their setup as completed so the frontend
+    -- doesn't prompt them to create a new organization.
+    IF _team_owner IS NOT NULL AND _team_owner <> _user_id THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
+    END IF;
+
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'name', _trimmed_name,
             'email', _trimmed_email,
-            'team_id', _team_id
+            'team_id', _team_id,
+            'setup_completed', (SELECT setup_completed FROM users WHERE id = _user_id)
            );
 END;
 $$;
