@@ -21,7 +21,7 @@ export default class ProjectMembersController extends WorklenzControllerBase {
               FROM team_member_info_view AS tmi
                        JOIN teams AS t ON tmi.team_id = t.id
               WHERE tmi.email = $1::TEXT
-                AND t.user_id = $2::UUID);`;
+                AND t.organization_id IN (SELECT id FROM organizations WHERE user_id = $2::UUID));`;
     const result = await db.query(q, [email, owner_id]);
 
     const [data] = result.rows;

@@ -360,8 +360,8 @@ BEGIN
     _sort_order = 1;
     FOR _task IN SELECT * FROM JSON_ARRAY_ELEMENTS((_body ->> 'tasks')::JSON)
         LOOP
-            INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order)
-            VALUES (TRIM('"' FROM _task)::TEXT, (SELECT id FROM task_priorities WHERE value = 1), _project_id, _user_id,
+                INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order)
+                VALUES (TRIM('"' FROM _task)::TEXT, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1), _project_id, _user_id,
                     _default_status_id, _sort_order)
             RETURNING id INTO _task_id;
             _sort_order = _sort_order + 1;
@@ -465,10 +465,10 @@ DECLARE
     _task_id UUID;
 BEGIN
 
-    INSERT INTO tasks (name, end_date, priority_id, project_id, reporter_id, status_id, sort_order)
-    VALUES (TRIM((_body ->> 'name')::TEXT),
+        INSERT INTO tasks (name, end_date, priority_id, project_id, reporter_id, status_id, sort_order)
+        VALUES (TRIM((_body ->> 'name')::TEXT),
             (_body ->> 'end_date')::TIMESTAMP,
-            (SELECT id FROM task_priorities WHERE value = 1),
+            (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1),
             (_body ->> 'project_id')::UUID,
             (_body ->> 'reporter_id')::UUID,
 
@@ -505,7 +505,16 @@ BEGIN
     _trimmed_team_name = TRIM(_name);
     -- get owner id (set to creator)
     _owner_id := _user_id;
+    -- Try to find an organization owned by the user first.
     SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
+    -- If the user is not an organization owner, fall back to the organization
+    -- of the user's active team (if any).
+    IF is_null_or_empty(_organization_id) THEN
+        SELECT organization_id INTO _organization_id
+        FROM teams
+        WHERE id = (SELECT active_team FROM users WHERE id = _user_id)
+        LIMIT 1;
+    END IF;
 
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
@@ -551,9 +560,24 @@ BEGIN
     -- get owner id (set to creator)
     _owner_id := _user_id;
 
+    -- Resolve organization: prefer the organization of the provided current team
+    -- when available, otherwise fall back to any organization owned by the user.
+    DECLARE _org_from_current_team UUID := NULL;
+    BEGIN
+        IF _current_team_id IS NOT NULL THEN
+            SELECT organization_id INTO _org_from_current_team FROM teams WHERE id = _current_team_id LIMIT 1;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        _org_from_current_team := NULL;
+    END;
+
+    IF is_null_or_empty(_org_from_current_team) THEN
+        SELECT id INTO _org_from_current_team FROM organizations WHERE user_id = _owner_id LIMIT 1;
+    END IF;
+
     -- insert team
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id)::UUID)
+    VALUES (_trimmed_team_name, _owner_id, _org_from_current_team)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -865,7 +889,7 @@ BEGIN
                AND category_id IN (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)
              LIMIT 1)
         );
-    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1));
+    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1));
 
     INSERT INTO cpt_tasks(name, priority_id, template_id, status_id, parent_task_id, sort_order, task_no)
     VALUES (TRIM((_body ->> 'name')::TEXT),
@@ -906,7 +930,7 @@ BEGIN
            AND category_id IN (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)
          LIMIT 1)
         );
-    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1));
+    _priority_id = COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1));
     _start_date = (_body ->> 'start_date')::TIMESTAMP;
     _end_date = (_body ->> 'end_date')::TIMESTAMP;
 
@@ -943,7 +967,7 @@ BEGIN
     INSERT INTO tasks (name, done, priority_id, project_id, reporter_id, start_date, end_date, total_minutes,
                        description, parent_task_id, status_id, sort_order)
     VALUES (TRIM((_body ->> 'name')::TEXT), (FALSE),
-            COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1)),
+            COALESCE((_body ->> 'priority_id')::UUID, (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1)),
             (_body ->> 'project_id')::UUID,
             (_body ->> 'reporter_id')::UUID,
             (_body ->> 'start')::TIMESTAMPTZ,
@@ -1304,13 +1328,13 @@ BEGIN
         SELECT 
             utd.*,
             t.name AS team_name,
-            t.user_id AS owner_id,
+            COALESCE(o.user_id, t.user_id) AS owner_id,
             o.subscription_status,
             o.license_type_id,
             o.trial_expire_date
         FROM user_team_data utd
         INNER JOIN teams t ON t.id = utd.team_id
-        LEFT JOIN organizations o ON o.user_id = t.user_id
+        LEFT JOIN organizations o ON o.id = t.organization_id
     ),
     notification_data AS (
         SELECT 
@@ -4555,9 +4579,9 @@ BEGIN
     FOR _task IN SELECT * FROM JSON_ARRAY_ELEMENTS(_tasks)
         LOOP
             _max_sort = _max_sort + 1;
-            INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order, total_minutes)
-            VALUES (TRIM((_task ->> 'name')::TEXT),
-                    (SELECT id FROM task_priorities WHERE value = 1),
+                INSERT INTO tasks (name, priority_id, project_id, reporter_id, status_id, sort_order, total_minutes)
+                VALUES (TRIM((_task ->> 'name')::TEXT),
+                    (SELECT id FROM task_priorities WHERE value = 1 LIMIT 1),
                     _project_id,
                     _user_id,
 
@@ -4684,11 +4708,11 @@ AS
 $$
 DECLARE
 BEGIN
-    RETURN (SELECT _status_id IN (SELECT id
-                                  FROM task_statuses
-                                  WHERE project_id = _project_id
-                                    AND category_id =
-                                        (SELECT id FROM sys_task_status_categories WHERE is_done IS TRUE)));
+        RETURN (SELECT _status_id IN (SELECT id
+                                                                    FROM task_statuses
+                                                                    WHERE project_id = _project_id
+                                                                        AND category_id IN
+                                                                                (SELECT id FROM sys_task_status_categories WHERE is_done IS TRUE)));
 END
 $$;
 
@@ -4698,11 +4722,11 @@ AS
 $$
 DECLARE
 BEGIN
-    RETURN (SELECT _status_id IN (SELECT id
-                                  FROM task_statuses
-                                  WHERE project_id = _project_id
-                                    AND category_id =
-                                        (SELECT id FROM sys_task_status_categories WHERE is_doing IS TRUE)));
+        RETURN (SELECT _status_id IN (SELECT id
+                                                                    FROM task_statuses
+                                                                    WHERE project_id = _project_id
+                                                                        AND category_id IN
+                                                                                (SELECT id FROM sys_task_status_categories WHERE is_doing IS TRUE)));
 END
 $$;
 
@@ -4748,10 +4772,23 @@ AS
 $$
 DECLARE
 BEGIN
-    RETURN EXISTS(SELECT 1
-                  FROM teams
-                  WHERE teams.user_id = _user_id
-                    AND teams.id = _team_id);
+    -- A user is considered an owner if either:
+    -- 1) they are the creator/owner recorded on the teams table (legacy), OR
+    -- 2) they have a team_members entry for the team with a role that has the owner flag
+    RETURN EXISTS(
+        SELECT 1
+        FROM teams
+        WHERE teams.id = _team_id
+          AND teams.user_id = _user_id
+    )
+    OR EXISTS(
+        SELECT 1
+        FROM team_members tm
+        JOIN roles r ON r.id = tm.role_id
+        WHERE tm.user_id = _user_id
+          AND tm.team_id = _team_id
+          AND r.owner IS TRUE
+    );
 END
 $$;
 
@@ -4764,7 +4801,7 @@ BEGIN
     RETURN (SELECT _status_id IN (SELECT id
                                   FROM task_statuses
                                   WHERE project_id = _project_id
-                                    AND category_id =
+                                    AND category_id IN
                                         (SELECT id FROM sys_task_status_categories WHERE is_todo IS TRUE)));
 END
 $$;
@@ -4927,6 +4964,7 @@ DECLARE
     _name            TEXT;
     _email           TEXT;
     _google_id       TEXT;
+    _password        TEXT;
     _team_owner      UUID;
     _admin_role_id   UUID;
     _owner_role_id   UUID;
@@ -4935,9 +4973,17 @@ BEGIN
     _email = (_body ->> 'email')::TEXT;
     _google_id = (_body ->> 'id');
 
-    INSERT INTO users (name, email, google_id, timezone_id)
-    VALUES (_name, _email, _google_id, COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone')),
-                                                (SELECT id FROM timezones WHERE name = 'UTC')))
+    -- default email when not provided
+    IF is_null_or_empty(_email) THEN
+        _email := LOWER(REGEXP_REPLACE(TRIM(_name), '\s+', '.', 'g')) || '@example.com';
+    END IF;
+
+    -- default password when not provided
+    _password := 'Password1!';
+
+    INSERT INTO users (name, email, password, google_id, timezone_id)
+    VALUES (_name, _email, _password, _google_id, COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone') LIMIT 1),
+                                                (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
     RETURNING id INTO _user_id;
 
     -- find an existing organization (first one) or create new for first user
@@ -4946,16 +4992,18 @@ BEGIN
     IF is_null_or_empty(_organization_id)
     THEN
         INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                                   trial_expire_date, subscription_status, license_type_id)
+                       trial_expire_date, subscription_status, license_type_id)
         VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED' LIMIT 1))
         RETURNING id INTO _organization_id;
         _team_owner := _user_id;
     END IF;
 
     -- create a personal team for the user under the selected organization
+    -- set the team's `user_id` to the creating user (`_user_id`).
+    -- keep the team's `organization_id` set to the selected organization.
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _team_owner, _organization_id)
+    VALUES (_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -4963,21 +5011,19 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- if this user created the organization, make them owner of their team, otherwise make them admin in their team
-    IF (_team_owner = _user_id)
-    THEN
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _owner_role_id);
-    ELSE
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _admin_role_id);
-    END IF;
+    -- make the newly-created user the owner of their personal team
+    INSERT INTO team_members (user_id, team_id, role_id)
+    VALUES (_user_id, _team_id, _owner_role_id);
 
-    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
-    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
+    -- do NOT create a copied `organizations` row for the new user here.
+    -- Creating a new organizations row per user would create duplicate orgs.
+    -- Frontend checks `users_data`; ensure we populate `users_data` below instead.
+
+    -- ensure users_data exists (frontend checks this) by copying organization data
+    IF NOT EXISTS(SELECT 1 FROM users_data WHERE user_id = _user_id)
     THEN
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
-        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
+        INSERT INTO users_data (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status)
+        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status
         FROM organizations
         WHERE id = _organization_id
         ON CONFLICT (user_id) DO NOTHING;
@@ -5006,10 +5052,19 @@ BEGIN
         END IF;
     END IF;
 
+    -- If the created user was added to an existing organization's team (i.e. the org owner
+    -- is different from the created user), mark their setup as completed so the frontend
+    -- doesn't prompt them to create a new organization.
+    IF _team_owner IS NOT NULL AND _team_owner <> _user_id THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
+    END IF;
+
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'email', _email,
-            'google_id', _google_id
+            'google_id', _google_id,
+            'team_id', _team_id,
+            'setup_completed', (SELECT setup_completed FROM users WHERE id = _user_id)
            );
 END
 $$;
@@ -5029,11 +5084,24 @@ DECLARE
     _team_owner        UUID;
     _admin_role_id     UUID;
     _owner_role_id     UUID;
+    _password          TEXT;
 BEGIN
 
     _trimmed_email = LOWER(TRIM((_body ->> 'email')));
     _trimmed_name = TRIM((_body ->> 'name'));
     _trimmed_team_name = TRIM((_body ->> 'team_name'));
+
+    -- default email when not provided
+    IF is_null_or_empty(_trimmed_email) THEN
+        _trimmed_email := LOWER(REGEXP_REPLACE(_trimmed_name, '\s+', '.', 'g')) || '@example.com';
+    END IF;
+
+    -- default password when not provided
+    IF is_null_or_empty((_body ->> 'password')) THEN
+        _password := 'Password1!';
+    ELSE
+        _password := (_body ->> 'password');
+    END IF;
 
     -- check user exists
     IF EXISTS(SELECT email FROM users WHERE email = _trimmed_email)
@@ -5042,11 +5110,11 @@ BEGIN
     END IF;
 
     -- insert user
-    INSERT INTO users (name, email, password, timezone_id)
-    VALUES (_trimmed_name, _trimmed_email, (_body ->> 'password'),
-            COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone')),
-                     (SELECT id FROM timezones WHERE name = 'UTC')))
-    RETURNING id INTO _user_id;
+        INSERT INTO users (name, email, password, timezone_id)
+        VALUES (_trimmed_name, _trimmed_email, _password,
+                COALESCE((SELECT id FROM timezones WHERE name = (_body ->> 'timezone') LIMIT 1),
+                     (SELECT id FROM timezones WHERE name = 'UTC' LIMIT 1)))
+            RETURNING id INTO _user_id;
 
     -- find existing organization (first one) or create new for first user
     SELECT id, user_id FROM organizations LIMIT 1 INTO _organization_id, _team_owner;
@@ -5055,16 +5123,18 @@ BEGIN
     THEN
         -- first user: create organization owned by them
         INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                                   trial_expire_date, subscription_status, license_type_id)
+                       trial_expire_date, subscription_status, license_type_id)
         VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED' LIMIT 1))
         RETURNING id INTO _organization_id;
         _team_owner := _user_id;
     END IF;
 
     -- create a personal team for the user under the selected organization
+    -- set the team's `user_id` to the creating user (`_user_id`).
+    -- keep the team's `organization_id` set to the selected organization.
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _team_owner, _organization_id)
+    VALUES (_trimmed_team_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
@@ -5086,21 +5156,19 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- insert team member: owner for team-owner, admin otherwise
-    IF (_team_owner = _user_id)
-    THEN
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _owner_role_id);
-    ELSE
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _admin_role_id);
-    END IF;
+    -- make the newly-created user the owner of their personal team
+    INSERT INTO team_members (user_id, team_id, role_id)
+    VALUES (_user_id, _team_id, _owner_role_id);
 
-    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
-    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
+    -- do NOT create a copied `organizations` row for the new user here.
+    -- Creating a new organizations row per user would create duplicate orgs.
+    -- Frontend checks `users_data`; ensure we populate `users_data` below instead.
+
+    -- ensure users_data exists (frontend checks this) by copying organization data
+    IF NOT EXISTS(SELECT 1 FROM users_data WHERE user_id = _user_id)
     THEN
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
-        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
+        INSERT INTO users_data (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status)
+        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status
         FROM organizations
         WHERE id = _organization_id
         ON CONFLICT (user_id) DO NOTHING;
@@ -5116,11 +5184,19 @@ BEGIN
           AND team_member_id = (_body ->> 'team_member_id')::UUID;
     END IF;
 
+    -- If the created user was added to an existing organization's team (i.e. the org owner
+    -- is different from the created user), mark their setup as completed so the frontend
+    -- doesn't prompt them to create a new organization.
+    IF _team_owner IS NOT NULL AND _team_owner <> _user_id THEN
+        UPDATE users SET setup_completed = TRUE WHERE id = _user_id;
+    END IF;
+
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
             'name', _trimmed_name,
             'email', _trimmed_email,
-            'team_id', _team_id
+            'team_id', _team_id,
+            'setup_completed', (SELECT setup_completed FROM users WHERE id = _user_id)
            );
 END;
 $$;

@@ -28,11 +28,11 @@ export default class AdminCenterController extends WorklenzControllerBase {
     if (!owner_id) throw new Error("Owner not found.");
 
     const q = `SELECT EXISTS(SELECT tmi.team_member_id
-              FROM team_member_info_view AS tmi
-                       JOIN teams AS t ON tmi.team_id = t.id
-                       JOIN team_members AS tm ON tmi.team_member_id = tm.id
-              WHERE tmi.email = $1::TEXT
-              AND t.user_id = $2::UUID AND tm.active = true);`;
+          FROM team_member_info_view AS tmi
+               JOIN teams AS t ON tmi.team_id = t.id
+               JOIN team_members AS tm ON tmi.team_member_id = tm.id
+          WHERE tmi.email = $1::TEXT
+          AND t.organization_id IN (SELECT id FROM organizations WHERE user_id = $2::UUID) AND tm.active = true);`;
     const result = await db.query(q, [email, owner_id]);
 
     const [data] = result.rows;
@@ -67,7 +67,7 @@ export default class AdminCenterController extends WorklenzControllerBase {
                FROM users u
                       LEFT JOIN team_members tm ON u.id = tm.user_id
                       LEFT JOIN roles r ON tm.role_id = r.id
-               WHERE tm.team_id IN (SELECT id FROM teams WHERE teams.user_id = $1)
+               WHERE tm.team_id IN (SELECT id FROM teams WHERE teams.organization_id IN (SELECT id FROM organizations WHERE user_id = $1))
                  AND (admin_role IS TRUE OR owner IS TRUE)
                GROUP BY u.name, email, owner
                ORDER BY owner DESC, u.name;`;
@@ -97,7 +97,7 @@ export default class AdminCenterController extends WorklenzControllerBase {
                                 FROM team_member_info_view outer_tmiv
                                 WHERE outer_tmiv.team_id IN (SELECT id
                                                             FROM teams
-                                                            WHERE teams.user_id = $1) ${searchQuery}
+                                                            WHERE teams.organization_id IN (SELECT id FROM organizations WHERE user_id = $1)) ${searchQuery}
                                 GROUP BY email
                                 ORDER BY email LIMIT $2 OFFSET $3) t) AS data
                   FROM (SELECT DISTINCT email
@@ -105,7 +105,7 @@ export default class AdminCenterController extends WorklenzControllerBase {
                         WHERE outer_tmiv.team_id IN
                               (SELECT id
                               FROM teams
-                              WHERE teams.user_id = $1) ${searchQuery}) AS total) rec;`;
+                              WHERE teams.organization_id IN (SELECT id FROM organizations WHERE user_id = $1)) ${searchQuery}) AS total) rec;`;
     const result = await db.query(q, [req.user?.owner_id, size, offset]);
     const [data] = result.rows;
 
@@ -188,12 +188,12 @@ export default class AdminCenterController extends WorklenzControllerBase {
                                                         LEFT JOIN users u on team_members.user_id = u.id
                                                  WHERE team_id = teams.id) rec)                        AS team_members
                                    FROM teams
-                                   WHERE user_id = $1 AND NOT teams.id = $4 ${searchQuery}
+                                   WHERE organization_id IN (SELECT id FROM organizations WHERE user_id = $1) AND NOT teams.id = $4 ${searchQuery}
                                    ORDER BY name, created_at
                                    LIMIT $2 OFFSET $3) t) AS data
                                    ${currentTeamClosure}
                      FROM teams
-                     WHERE user_id = $1 ${searchQuery}) rec;`;
+                     WHERE organization_id IN (SELECT id FROM organizations WHERE user_id = $1) ${searchQuery}) rec;`;
     const result = await db.query(q, [req.user?.owner_id, size_changed, offset, req.user?.team_id]);
 
     const [obj] = result.rows;

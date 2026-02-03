@@ -27,7 +27,7 @@ export default class TeamMembersController extends WorklenzControllerBase {
               FROM team_member_info_view AS tmi
                        JOIN teams AS t ON tmi.team_id = t.id
               WHERE tmi.email = $1::TEXT
-                AND t.user_id = $2::UUID);`;
+                AND t.organization_id IN (SELECT id FROM organizations WHERE user_id = $2::UUID));`;
     const result = await db.query(q, [email, owner_id]);
 
     const [data] = result.rows;
@@ -38,11 +38,11 @@ export default class TeamMembersController extends WorklenzControllerBase {
     if (!owner_id) throw new Error("Owner not found.");
 
     const q = `SELECT EXISTS(SELECT tmi.team_member_id
-              FROM team_member_info_view AS tmi
-                       JOIN teams AS t ON tmi.team_id = t.id
-                       JOIN team_members AS tm ON tmi.team_member_id = tm.id
-              WHERE tmi.email = $1::TEXT
-              AND t.user_id = $2::UUID AND tm.active = true);`;
+          FROM team_member_info_view AS tmi
+               JOIN teams AS t ON tmi.team_id = t.id
+               JOIN team_members AS tm ON tmi.team_member_id = tm.id
+          WHERE tmi.email = $1::TEXT
+          AND t.organization_id IN (SELECT id FROM organizations WHERE user_id = $2::UUID) AND tm.active = true);`;
     const result = await db.query(q, [email, owner_id]);
 
     const [data] = result.rows;

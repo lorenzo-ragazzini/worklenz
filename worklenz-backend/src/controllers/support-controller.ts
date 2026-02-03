@@ -31,7 +31,7 @@ export default class SupportController extends WorklenzControllerBase {
           SELECT t.name as team_name, o.organization_name 
           FROM users u
           LEFT JOIN teams t ON t.id = u.active_team 
-          LEFT JOIN organizations o ON o.user_id = t.user_id
+          LEFT JOIN organizations o ON o.id = t.organization_id
           WHERE u.id = $1
         `;
         const orgResult = await db.query(orgQuery, [user.id]);
