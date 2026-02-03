@@ -4976,8 +4976,8 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
-    -- keep the team's `user_id` as the organization's owner (preserve existing joins),
-    -- but make the newly-created user the owner in the team_members table below
+    -- set the team's `user_id` to the organization's owner (`_team_owner`).
+    -- for the first user `_team_owner` is set to the new user above.
     INSERT INTO teams (name, user_id, organization_id)
     VALUES (_name, _team_owner, _organization_id)
     RETURNING id INTO _team_id;
@@ -4991,15 +4991,9 @@ BEGIN
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_user_id, _team_id, _owner_role_id);
 
-    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
-    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
-    THEN
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
-        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
-        FROM organizations
-        WHERE id = _organization_id
-        ON CONFLICT (user_id) DO NOTHING;
-    END IF;
+    -- do NOT create a copied `organizations` row for the new user here.
+    -- Creating a new organizations row per user would create duplicate orgs.
+    -- Frontend checks `users_data`; ensure we populate `users_data` below instead.
 
     -- ensure users_data exists (frontend checks this) by copying organization data
     IF NOT EXISTS(SELECT 1 FROM users_data WHERE user_id = _user_id)
@@ -5104,8 +5098,8 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
-    -- keep the team's `user_id` as the organization's owner (preserve existing joins),
-    -- but make the newly-created user the owner in the team_members table below
+    -- set the team's `user_id` to the organization's owner (`_team_owner`).
+    -- for the first user `_team_owner` is set to the new user above.
     INSERT INTO teams (name, user_id, organization_id)
     VALUES (_trimmed_team_name, _team_owner, _organization_id)
     RETURNING id INTO _team_id;
@@ -5133,15 +5127,9 @@ BEGIN
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_user_id, _team_id, _owner_role_id);
 
-    -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
-    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
-    THEN
-        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
-        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
-        FROM organizations
-        WHERE id = _organization_id
-        ON CONFLICT (user_id) DO NOTHING;
-    END IF;
+    -- do NOT create a copied `organizations` row for the new user here.
+    -- Creating a new organizations row per user would create duplicate orgs.
+    -- Frontend checks `users_data`; ensure we populate `users_data` below instead.
 
     -- ensure users_data exists (frontend checks this) by copying organization data
     IF NOT EXISTS(SELECT 1 FROM users_data WHERE user_id = _user_id)
