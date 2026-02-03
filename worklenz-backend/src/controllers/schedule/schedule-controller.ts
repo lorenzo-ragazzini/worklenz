@@ -388,6 +388,12 @@ AND p.id NOT IN (SELECT project_id FROM archived_projects)`;
 
                   FROM projects p
                   WHERE team_id = $1
+                  AND EXISTS(
+                    SELECT 1 FROM project_members pm
+                    JOIN team_members tm ON pm.team_member_id = tm.id
+                    WHERE pm.project_id = p.id
+                      AND tm.user_id = $2
+                  )
                   AND p.id NOT IN
                     (SELECT project_id FROM archived_projects WHERE user_id = $2)
                   ORDER BY p.name`;

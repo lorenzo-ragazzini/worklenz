@@ -272,9 +272,10 @@ export default class ScheduleControllerV2 extends WorklenzControllerBase {
                                 LIMIT 1
                             )
                         )
+                        AND users.id = $2
                         ORDER BY users.email ASC, users.name ASC;`;
 
-        const results = await db.query(getDataq, [req.user?.owner_id]);
+        const results = await db.query(getDataq, [req.user?.owner_id, req.user?.id]);
         return res.status(200).send(new ServerResponse(true, results.rows));
 
     }
@@ -283,6 +284,11 @@ export default class ScheduleControllerV2 extends WorklenzControllerBase {
     public static async getOrganizationMemberProjects(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
 
         const { id } = req.params;
+
+        // Only allow fetching projects for the current user
+        if (id !== req.user?.id) {
+            return res.status(200).send(new ServerResponse(true, { projects: [], id }));
+        }
 
         const getDataq = `WITH project_dates AS (
                             SELECT

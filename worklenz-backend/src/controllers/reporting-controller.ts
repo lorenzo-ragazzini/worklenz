@@ -765,12 +765,12 @@ export default class ReportingController extends WorklenzControllerBase {
                       end_date,
                       (SELECT name FROM sys_project_statuses WHERE status_id = sys_project_statuses.id) AS status
                FROM projects
-               WHERE team_id IN (SELECT team_id
-                                 FROM team_members
-                                 WHERE user_id = $1
-                                   AND role_id IN (SELECT id
-                                                   FROM roles
-                                                   WHERE (admin_role IS TRUE OR owner IS TRUE)))
+               WHERE EXISTS (
+                 SELECT 1 FROM project_members pm
+                 JOIN team_members tm ON pm.team_member_id = tm.id
+                 WHERE pm.project_id = projects.id
+                   AND tm.user_id = $1
+               )
                  AND CASE
                        WHEN ($2 IS TRUE) THEN team_id IS NOT NULL
                        ELSE NOT EXISTS(SELECT project_id
@@ -805,12 +805,12 @@ export default class ReportingController extends WorklenzControllerBase {
                        WHERE project_id = p.id
                          AND end_date::DATE < twl.created_at::DATE) AS overlogged_hours
                FROM projects p
-               WHERE team_id IN (SELECT team_id
-                                 FROM team_members
-                                 WHERE user_id = $1
-                                   AND role_id IN (SELECT id
-                                                   FROM roles
-                                                   WHERE (admin_role IS TRUE OR owner IS TRUE)))
+               WHERE EXISTS (
+                 SELECT 1 FROM project_members pm
+                 JOIN team_members tm ON pm.team_member_id = tm.id
+                 WHERE pm.project_id = p.id
+                   AND tm.user_id = $1
+               )
                  AND end_date::DATE < CURRENT_DATE::DATE
                  AND CASE
                        WHEN ($2 IS TRUE) THEN team_id IS NOT NULL
