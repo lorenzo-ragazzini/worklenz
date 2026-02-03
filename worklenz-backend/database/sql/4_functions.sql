@@ -500,6 +500,8 @@ DECLARE
     _owner_role_id     UUID;
     _trimmed_name      TEXT;
     _trimmed_team_name TEXT;
+    _active_team_org_id UUID;
+    _org_owner_user_id UUID;
 BEGIN
 
     _trimmed_team_name = TRIM(_name);
@@ -508,19 +510,14 @@ BEGIN
 
     -- determine canonical organization row: prefer the organization of the user's active team,
     -- but ensure we reference the organization's row owned by the org owner (so admin-center queries match)
-    DECLARE
-        _active_team_org_id UUID;
-        _org_owner_user_id UUID;
-    BEGIN
-        SELECT organization_id INTO _active_team_org_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+    SELECT organization_id INTO _active_team_org_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
 
-        IF NOT is_null_or_empty(_active_team_org_id) THEN
-            SELECT user_id INTO _org_owner_user_id FROM organizations WHERE id = _active_team_org_id;
-            SELECT id INTO _organization_id FROM organizations WHERE user_id = _org_owner_user_id LIMIT 1;
-        ELSE
-            SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
-        END IF;
-    END;
+    IF NOT is_null_or_empty(_active_team_org_id) THEN
+        SELECT user_id INTO _org_owner_user_id FROM organizations WHERE id = _active_team_org_id;
+        SELECT id INTO _organization_id FROM organizations WHERE user_id = _org_owner_user_id LIMIT 1;
+    ELSE
+        SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
+    END IF;
 
     -- insert team with creator as owner
     INSERT INTO teams (name, user_id, organization_id)
@@ -535,6 +532,16 @@ BEGIN
     -- insert only the creating user as the default team member (owner role)
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_owner_id, _team_id, _owner_role_id);
+
+    -- ensure the creating user has an organizations row so frontend won't prompt to create one
+    IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
+    THEN
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id)
+        SELECT _user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress, trial_expire_date, subscription_status, license_type_id
+        FROM organizations
+        WHERE id = _organization_id
+        ON CONFLICT (user_id) DO NOTHING;
+    END IF;
 
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
