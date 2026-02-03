@@ -4927,6 +4927,9 @@ DECLARE
     _name            TEXT;
     _email           TEXT;
     _google_id       TEXT;
+    _team_owner      UUID;
+    _admin_role_id   UUID;
+    _owner_role_id   UUID;
 BEGIN
     _name = (_body ->> 'displayName')::TEXT;
     _email = (_body ->> 'email')::TEXT;
@@ -4937,24 +4940,38 @@ BEGIN
                                                 (SELECT id FROM timezones WHERE name = 'UTC')))
     RETURNING id INTO _user_id;
 
-    --insert organization data
-    INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                               trial_expire_date, subscription_status, license_type_id)
-    VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-    RETURNING id INTO _organization_id;
+    -- find an existing organization (first one) or create new for first user
+    SELECT id, user_id FROM organizations LIMIT 1 INTO _organization_id, _team_owner;
 
+    IF is_null_or_empty(_organization_id)
+    THEN
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                                   trial_expire_date, subscription_status, license_type_id)
+        VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+        RETURNING id INTO _organization_id;
+        _team_owner := _user_id;
+    END IF;
+
+    -- create a personal team for the user under the selected organization
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _user_id, _organization_id)
+    VALUES (_name, _team_owner, _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
     INSERT INTO roles (name, team_id, default_role) VALUES ('Member', _team_id, TRUE);
-    INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE);
-    INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _role_id;
+    INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
+    INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    INSERT INTO team_members (user_id, team_id, role_id)
-    VALUES (_user_id, _team_id, _role_id);
+    -- if this user created the organization, make them owner of their team, otherwise make them admin in their team
+    IF (_team_owner = _user_id)
+    THEN
+        INSERT INTO team_members (user_id, team_id, role_id)
+        VALUES (_user_id, _team_id, _owner_role_id);
+    ELSE
+        INSERT INTO team_members (user_id, team_id, role_id)
+        VALUES (_user_id, _team_id, _admin_role_id);
+    END IF;
 
     IF (is_null_or_empty(_body ->> 'team') OR is_null_or_empty(_body ->> 'member_id'))
     THEN
@@ -4971,8 +4988,7 @@ BEGIN
             WHERE id = (_body ->> 'member_id')::UUID
               AND team_id = (_body ->> 'team')::UUID;
 
-            DELETE
-            FROM email_invitations
+            DELETE FROM email_invitations
             WHERE team_id = (_body ->> 'team')::UUID
               AND team_member_id = (_body ->> 'member_id')::UUID;
 
@@ -5000,6 +5016,9 @@ DECLARE
     _trimmed_email     TEXT;
     _trimmed_name      TEXT;
     _trimmed_team_name TEXT;
+    _team_owner        UUID;
+    _admin_role_id     UUID;
+    _owner_role_id     UUID;
 BEGIN
 
     _trimmed_email = LOWER(TRIM((_body ->> 'email')));
@@ -5019,17 +5038,23 @@ BEGIN
                      (SELECT id FROM timezones WHERE name = 'UTC')))
     RETURNING id INTO _user_id;
 
-    --insert organization data
-    INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
-                               trial_expire_date, subscription_status, license_type_id)
-    VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
-            'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
-    RETURNING id INTO _organization_id;
+    -- find existing organization (first one) or create new for first user
+    SELECT id, user_id FROM organizations LIMIT 1 INTO _organization_id, _team_owner;
 
+    IF is_null_or_empty(_organization_id)
+    THEN
+        -- first user: create organization owned by them
+        INSERT INTO organizations (user_id, organization_name, contact_number, contact_number_secondary, trial_in_progress,
+                                   trial_expire_date, subscription_status, license_type_id)
+        VALUES (_user_id, TRIM((_body ->> 'team_name')::TEXT), NULL, NULL, TRUE, CURRENT_DATE + INTERVAL '9999 days',
+                'active', (SELECT id FROM sys_license_types WHERE key = 'SELF_HOSTED'))
+        RETURNING id INTO _organization_id;
+        _team_owner := _user_id;
+    END IF;
 
-    -- insert team
+    -- create a personal team for the user under the selected organization
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _user_id, _organization_id)
+    VALUES (_trimmed_team_name, _team_owner, _organization_id)
     RETURNING id INTO _team_id;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
@@ -5048,14 +5073,20 @@ BEGIN
 
     -- insert default roles
     INSERT INTO roles (name, team_id, default_role) VALUES ('Member', _team_id, TRUE);
-    INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE);
-    INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _role_id;
+    INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
+    INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- insert team member
-    INSERT INTO team_members (user_id, team_id, role_id)
-    VALUES (_user_id, _team_id, _role_id);
+    -- insert team member: owner for team-owner, admin otherwise
+    IF (_team_owner = _user_id)
+    THEN
+        INSERT INTO team_members (user_id, team_id, role_id)
+        VALUES (_user_id, _team_id, _owner_role_id);
+    ELSE
+        INSERT INTO team_members (user_id, team_id, role_id)
+        VALUES (_user_id, _team_id, _admin_role_id);
+    END IF;
 
-    -- update team member table with user id
+    -- update team member table with user id if invited
     IF (_body ->> 'team_member_id') IS NOT NULL
     THEN
         UPDATE team_members SET user_id = (_user_id)::UUID WHERE id = (_body ->> 'team_member_id')::UUID;
