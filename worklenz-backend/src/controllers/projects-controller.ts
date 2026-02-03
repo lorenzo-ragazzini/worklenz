@@ -208,8 +208,7 @@ export default class ProjectsController extends WorklenzControllerBase {
   public static async get(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, sortField, sortOrder, size, offset} = this.toPaginationOptions(req.query, "name");
 
-    const filterByMember = !req.user?.owner && !req.user?.is_admin ?
-      ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) ` : "";
+    const filterByMember = ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) `;
 
     const isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)` : "";
     const isArchived = req.query.filter === "2"
@@ -610,8 +609,7 @@ export default class ProjectsController extends WorklenzControllerBase {
   @HandleExceptions()
   public static async getAllTasks(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, size, offset} = this.toPaginationOptions(req.query, ["tasks.name"]);
-    const filterByMember = !req.user?.owner && !req.user?.is_admin ?
-      ` AND is_member_of_project(p.id, '${req.user?.id}', $1) ` : "";
+    const filterByMember = ` AND is_member_of_project(p.id, '${req.user?.id}', $1) `;
 
     const isDueSoon = req.query.filter == "1";
 
@@ -755,8 +753,7 @@ export default class ProjectsController extends WorklenzControllerBase {
     const {searchQuery, sortField, sortOrder, size, offset} = this.toPaginationOptions(req.query, ["projects.name"]);
     const groupBy = req.query.groupBy as string || "category";
 
-    const filterByMember = !req.user?.owner && !req.user?.is_admin ?
-      ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) ` : "";
+    const filterByMember = ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) `;
 
     const isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)` : "";
     const isArchived = req.query.filter === "2"

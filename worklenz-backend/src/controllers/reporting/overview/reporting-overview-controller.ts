@@ -88,7 +88,7 @@ export default class ReportingOverviewController extends ReportingOverviewBase {
       ? ""
       : `AND p.id NOT IN (SELECT project_id FROM archived_projects WHERE project_id = p.id AND user_id = '${req.user?.id}') `;
 
-    const teamFilterClause = `p.team_id = $1`;
+    const teamFilterClause = `p.team_id = $1 AND is_member_of_project(p.id, '${req.user?.id}', $1)`;
 
     const result = await ReportingControllerBase.getProjectsByTeam(teamId, size, offset, searchQuery, sortField, sortOrder, "", "", "", archivedClause, teamFilterClause, "");
 

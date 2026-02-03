@@ -745,7 +745,8 @@ export default class AdminCenterController extends WorklenzControllerBase {
         FROM projects p
         JOIN teams t ON p.team_id = t.id
         JOIN organizations o ON t.organization_id = o.id
-        WHERE o.user_id = $1;`;
+        WHERE o.user_id = $1
+          AND EXISTS(SELECT 1 FROM project_members pm JOIN team_members tm ON pm.team_member_id = tm.id WHERE pm.project_id = p.id AND tm.user_id = '${req.user?.id}');`;
     const countResult = await db.query(countQ, [req.user?.owner_id]);
 
     // Query to get the project data
@@ -762,7 +763,8 @@ export default class AdminCenterController extends WorklenzControllerBase {
         FROM project_members
         GROUP BY project_id
         ) pm ON p.id = pm.project_id
-        WHERE o.user_id = $1 ${searchQuery}
+        WHERE o.user_id = $1
+          AND EXISTS(SELECT 1 FROM project_members pm2 JOIN team_members tm2 ON pm2.team_member_id = tm2.id WHERE pm2.project_id = p.id AND tm2.user_id = '${req.user?.id}') ${searchQuery}
         ORDER BY p.name
         OFFSET $2 LIMIT $3;`;
 

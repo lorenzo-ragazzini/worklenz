@@ -383,7 +383,7 @@ AND p.id NOT IN (SELECT project_id FROM archived_projects)`;
                             FROM project_members pm
                                       INNER JOIN team_member_info_view tmiv
                                                 ON pm.team_member_id = tmiv.team_member_id
-                            WHERE project_id = p.id
+                            WHERE project_id = p.id AND tmiv.user_id = $2
                             ORDER BY NAME ASC) rec) AS members
 
                   FROM projects p
