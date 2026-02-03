@@ -503,11 +503,26 @@ DECLARE
 BEGIN
 
     _trimmed_team_name = TRIM(_name);
-    -- get owner id
-    SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
-    SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id;
+    -- set owner as the creating user
+    _owner_id := _user_id;
 
-    -- insert team
+    -- determine canonical organization row: prefer the organization of the user's active team,
+    -- but ensure we reference the organization's row owned by the org owner (so admin-center queries match)
+    DECLARE
+        _active_team_org_id UUID;
+        _org_owner_user_id UUID;
+    BEGIN
+        SELECT organization_id INTO _active_team_org_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+
+        IF NOT is_null_or_empty(_active_team_org_id) THEN
+            SELECT user_id INTO _org_owner_user_id FROM organizations WHERE id = _active_team_org_id;
+            SELECT id INTO _organization_id FROM organizations WHERE user_id = _org_owner_user_id LIMIT 1;
+        ELSE
+            SELECT id INTO _organization_id FROM organizations WHERE user_id = _user_id LIMIT 1;
+        END IF;
+    END;
+
+    -- insert team with creator as owner
     INSERT INTO teams (name, user_id, organization_id)
     VALUES (_trimmed_team_name, _owner_id, _organization_id)
     RETURNING id INTO _team_id;
@@ -517,15 +532,9 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- insert team member
+    -- insert only the creating user as the default team member (owner role)
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_owner_id, _team_id, _owner_role_id);
-
-    IF (_user_id <> _owner_id)
-    THEN
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _admin_role_id);
-    END IF;
 
     RETURN JSON_BUILD_OBJECT(
             'id', _user_id,
@@ -548,12 +557,28 @@ BEGIN
 
     _trimmed_team_name = TRIM(_name);
 
-    -- get owner id
-    SELECT user_id INTO _owner_id FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+    -- set owner as the creating user
+    _owner_id := _user_id;
 
-    -- insert team
+    -- determine canonical organization row similarly to the other overload
+    DECLARE
+        _active_team_org_id2 UUID;
+        _org_owner_user_id2 UUID;
+        _org_row_id UUID;
+    BEGIN
+        SELECT organization_id INTO _active_team_org_id2 FROM teams WHERE id = (SELECT active_team FROM users WHERE id = _user_id);
+
+        IF NOT is_null_or_empty(_active_team_org_id2) THEN
+            SELECT user_id INTO _org_owner_user_id2 FROM organizations WHERE id = _active_team_org_id2;
+            SELECT id INTO _org_row_id FROM organizations WHERE user_id = _org_owner_user_id2 LIMIT 1;
+        ELSE
+            SELECT id INTO _org_row_id FROM organizations WHERE user_id = _owner_id LIMIT 1;
+        END IF;
+    END;
+
+    -- insert team with creator as owner
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _owner_id, (SELECT id FROM organizations WHERE user_id = _owner_id)::UUID)
+    VALUES (_trimmed_team_name, _owner_id, _org_row_id::UUID)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -561,7 +586,7 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE);
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _role_id;
 
-    -- insert team member
+    -- insert only the creating user as the default team member (owner role)
     INSERT INTO team_members (user_id, team_id, role_id)
     VALUES (_user_id, _team_id, _role_id);
 
@@ -4954,8 +4979,9 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
+    -- team owner should be the newly created user
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _team_owner, _organization_id)
+    VALUES (_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -4963,15 +4989,9 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- if this user created the organization, make them owner of their team, otherwise make them admin in their team
-    IF (_team_owner = _user_id)
-    THEN
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _owner_role_id);
-    ELSE
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _admin_role_id);
-    END IF;
+    -- insert the creating user as the owner of their personal team
+    INSERT INTO team_members (user_id, team_id, role_id)
+    VALUES (_user_id, _team_id, _owner_role_id);
 
     -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
     IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
@@ -5063,8 +5083,9 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
+    -- ensure the team is owned by the newly created user
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _team_owner, _organization_id)
+    VALUES (_trimmed_team_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
@@ -5086,15 +5107,9 @@ BEGIN
     INSERT INTO roles (name, team_id, admin_role) VALUES ('Admin', _team_id, TRUE) RETURNING id INTO _admin_role_id;
     INSERT INTO roles (name, team_id, owner) VALUES ('Owner', _team_id, TRUE) RETURNING id INTO _owner_role_id;
 
-    -- insert team member: owner for team-owner, admin otherwise
-    IF (_team_owner = _user_id)
-    THEN
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _owner_role_id);
-    ELSE
-        INSERT INTO team_members (user_id, team_id, role_id)
-        VALUES (_user_id, _team_id, _admin_role_id);
-    END IF;
+    -- insert the creating user as the owner of their personal team
+    INSERT INTO team_members (user_id, team_id, role_id)
+    VALUES (_user_id, _team_id, _owner_role_id);
 
     -- ensure the new user has an organizations row (copying org info) so frontend won't prompt to create one
     IF NOT EXISTS(SELECT 1 FROM organizations WHERE user_id = _user_id)
