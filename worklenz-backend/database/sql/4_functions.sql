@@ -4976,10 +4976,10 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
-    -- set the team's `user_id` to the organization's owner (`_team_owner`).
-    -- for the first user `_team_owner` is set to the new user above.
+    -- set the team's `user_id` to the creating user (`_user_id`).
+    -- keep the team's `organization_id` set to the selected organization.
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_name, _team_owner, _organization_id)
+    VALUES (_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     -- insert default roles
@@ -5107,10 +5107,10 @@ BEGIN
     END IF;
 
     -- create a personal team for the user under the selected organization
-    -- set the team's `user_id` to the organization's owner (`_team_owner`).
-    -- for the first user `_team_owner` is set to the new user above.
+    -- set the team's `user_id` to the creating user (`_user_id`).
+    -- keep the team's `organization_id` set to the selected organization.
     INSERT INTO teams (name, user_id, organization_id)
-    VALUES (_trimmed_team_name, _team_owner, _organization_id)
+    VALUES (_trimmed_team_name, _user_id, _organization_id)
     RETURNING id INTO _team_id;
 
     IF (is_null_or_empty((_body ->> 'invited_team_id')))
