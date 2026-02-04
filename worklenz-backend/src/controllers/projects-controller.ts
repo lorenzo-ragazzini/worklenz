@@ -112,8 +112,14 @@ export default class ProjectsController extends WorklenzControllerBase {
                FROM projects
                WHERE team_id = $1
                  AND is_member_of_project(projects.id, $2, $1)`;
-    const result = await db.query(q, [req.user?.team_id, req.user?.id || null]);
-    return res.status(200).send(new ServerResponse(true, result.rows));
+    console.debug("getMyProjectsToTasks: team_id", req.user?.team_id, "user_id", req.user?.id);
+    try {
+      const result = await db.query(q, [req.user?.team_id, req.user?.id || null]);
+      return res.status(200).send(new ServerResponse(true, result.rows));
+    } catch (err: any) {
+      console.error("getMyProjectsToTasks: query error", err?.message || err);
+      return res.status(500).send(new ServerResponse(false, [], "Failed retrieving user's projects"));
+    }
   }
 
   @HandleExceptions()
@@ -181,15 +187,21 @@ export default class ProjectsController extends WorklenzControllerBase {
                 , '${req.user?.id}'
                 , $1)) rec;
     `;
-    const result = await db.query(q, [req.user?.team_id || null, size, offset]);
-    const [data] = result.rows;
+    console.debug("getMyProjects: team_id", req.user?.team_id, "user_id", req.user?.id, "size", size, "offset", offset);
+    try {
+      const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+      const [data] = result.rows;
     const projects = Array.isArray(data?.projects.data) ? data?.projects.data : [];
     for (const project of projects) {
       project.progress = project.all_tasks_count > 0
         ? ((project.completed_tasks_count / project.all_tasks_count) * 100).toFixed(0) : 0;
 
     }
-    return res.status(200).send(new ServerResponse(true, data?.projects || this.paginatedDatasetDefaultStruct));
+      return res.status(200).send(new ServerResponse(true, data?.projects || this.paginatedDatasetDefaultStruct));
+    } catch (err: any) {
+      console.error("getMyProjects: query error", err?.message || err);
+      return res.status(500).send(new ServerResponse(false, [], "Failed retrieving projects"));
+    }
   }
 
   private static flatString(text: string) {
@@ -290,10 +302,12 @@ export default class ProjectsController extends WorklenzControllerBase {
             FROM projects
             WHERE team_id = $1 ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}) rec;
     `;
-    const result = await db.query(q, [req.user?.team_id || null, size, offset]);
-    const [data] = result.rows;
+    console.debug("get projects: team_id", req.user?.team_id, "user_id", req.user?.id, "size", size, "offset", offset);
+    try {
+      const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+      const [data] = result.rows;
 
-    for (const project of data?.projects.data || []) {
+      for (const project of data?.projects.data || []) {
       project.progress = project.all_tasks_count > 0
         ? ((project.completed_tasks_count / project.all_tasks_count) * 100).toFixed(0) : 0;
 
@@ -310,7 +324,11 @@ export default class ProjectsController extends WorklenzControllerBase {
 
     }
 
-    return res.status(200).send(new ServerResponse(true, data?.projects || this.paginatedDatasetDefaultStruct));
+      return res.status(200).send(new ServerResponse(true, data?.projects || this.paginatedDatasetDefaultStruct));
+    } catch (err: any) {
+      console.error("get projects: query error", err?.message || err);
+      return res.status(500).send(new ServerResponse(false, [], "Failed retrieving projects"));
+    }
   }
 
   @HandleExceptions()

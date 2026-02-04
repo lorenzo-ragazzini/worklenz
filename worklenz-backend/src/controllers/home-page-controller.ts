@@ -346,8 +346,10 @@ export default class HomePageController extends WorklenzControllerBase {
 
     const team_id = req.user?.team_id;
     const user_id = req.user?.id;
-
     const current_view = req.query.view;
+
+    // Debug: log incoming identifiers to help trace failing project retrievals
+    console.debug("getProjects: team_id", team_id, "user_id", user_id, "view", current_view, "filter", req.query.filter);
 
     const isFavorites = current_view === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
     const isArchived = req.query.filter === "2"
@@ -398,22 +400,33 @@ export default class HomePageController extends WorklenzControllerBase {
                    , $1)
                ORDER BY updated_at DESC`;
 
-    const result = await db.query(q, [team_id, user_id]);
-    return res.status(200).send(new ServerResponse(true, result.rows));
+    try {
+      const result = await db.query(q, [team_id, user_id]);
+      return res.status(200).send(new ServerResponse(true, result.rows));
+    } catch (err: any) {
+      console.error("getProjects: query error", err?.message || err);
+      return res.status(500).send(new ServerResponse(false, [], "Failed retrieving projects"));
+    }
   }
 
   @HandleExceptions()
   public static async getProjectsByTeam(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const team_id = req.user?.team_id;
     const user_id = req.user?.id;
+    console.debug("getProjectsByTeam: team_id", team_id, "user_id", user_id);
     const q = `
       SELECT id, name, color_code
       FROM projects
       WHERE team_id = $1
         AND is_member_of_project(projects.id, $2, $1)
     `;
-    const result = await db.query(q, [team_id, user_id]);
-    return res.status(200).send(new ServerResponse(true, result.rows));
+    try {
+      const result = await db.query(q, [team_id, user_id]);
+      return res.status(200).send(new ServerResponse(true, result.rows));
+    } catch (err: any) {
+      console.error("getProjectsByTeam: query error", err?.message || err);
+      return res.status(500).send(new ServerResponse(false, [], "Failed retrieving projects by team"));
+    }
   }
 
   @HandleExceptions()
