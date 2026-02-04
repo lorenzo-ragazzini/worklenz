@@ -126,7 +126,7 @@ export default class ProjectsController extends WorklenzControllerBase {
   public static async getMyProjects(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, size, offset} = this.toPaginationOptions(req.query, "name");
 
-    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
+    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $1 AND project_id = projects.id)` : "";
 
     // If favorites filter requested but user has no favorites, ignore the filter so user still sees projects
     if (req.query.filter === "1") {
@@ -142,8 +142,8 @@ export default class ProjectsController extends WorklenzControllerBase {
     }
 
     const isArchived = req.query.filter === "2"
-      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`
-      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`;
+      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $1 AND project_id = projects.id)`
+      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $1 AND project_id = projects.id)`;
     const q = `
       SELECT ROW_TO_JSON(rec) AS projects
       FROM (SELECT COUNT(*) AS total,
@@ -191,7 +191,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                           WHERE team_id = $1 ${isArchived} ${isFavorites} ${searchQuery}
                             AND is_member_of_project(projects.id, $2, $1)
                           ORDER BY updated_at DESC
-                          LIMIT $2 OFFSET $3) t) AS data
+                          LIMIT $3 OFFSET $4) t) AS data
             FROM projects
             WHERE team_id = $1 ${isArchived} ${isFavorites} ${searchQuery}
               AND is_member_of_project(projects.id, $2, $1)) rec;
@@ -231,7 +231,7 @@ export default class ProjectsController extends WorklenzControllerBase {
 
     const filterByMember = ` AND is_member_of_project(projects.id, $1, projects.team_id) `;
 
-    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
+    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $1 AND project_id = projects.id)` : "";
     // If favorites filter requested but user has no favorites, ignore the filter so user still sees projects
     if (req.query.filter === "1") {
       try {
@@ -246,8 +246,8 @@ export default class ProjectsController extends WorklenzControllerBase {
     }
 
     const isArchived = req.query.filter === "2"
-      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`
-      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`;
+      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $1 AND project_id = projects.id)`
+      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $1 AND project_id = projects.id)`;
     const categories = this.getFilterByCategoryWhereClosure(req.query.categories as string);
     const statuses = this.getFilterByStatusWhereClosure(req.query.statuses as string);
 
@@ -690,7 +690,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                           WHERE tasks.archived IS FALSE
                             ${filterByMember} ${dueSoon} ${searchQuery} ${assignedToMe}
                           ORDER BY ${orderBy}
-                          LIMIT $2 OFFSET $3) t) AS data
+                          LIMIT $3 OFFSET $4) t) AS data
             FROM tasks
                    INNER JOIN projects p ON tasks.project_id = p.id
             WHERE tasks.archived IS FALSE
@@ -951,7 +951,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                   WHERE projects.team_id = $1 ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}
                   GROUP BY ${groupByFields}
                   ORDER BY ${groupOrderBy}
-                  LIMIT $2 OFFSET $3
+                  LIMIT $4 OFFSET $5
                 ) group_data
                ) AS data
         FROM projects
