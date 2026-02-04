@@ -57,11 +57,34 @@ export const projectsApi = createApi({
         });
         return `${rootUrl}?${params.toString()}`;
       },
+      transformResponse: (response: IServerResponse<IProjectsViewModel>) => {
+        try {
+          if (response && response.body && Array.isArray((response.body as any).data)) {
+            (response.body as any).data = (response.body as any).data.map((p: any) => ({
+              ...p,
+              team_name: p.team_name || p.client_name || p.client || '',
+            }));
+          }
+        } catch (e) {
+          // ignore mapping errors
+        }
+        return response;
+      },
       providesTags: result => [{ type: 'Projects', id: 'LIST' }],
     }),
 
     getProject: builder.query<IServerResponse<IProjectViewModel>, string>({
       query: id => `${rootUrl}/${id}`,
+      transformResponse: (response: IServerResponse<IProjectViewModel>) => {
+        try {
+          if (response && response.body) {
+            (response.body as any).team_name = (response.body as any).team_name || (response.body as any).client_name || (response.body as any).client || '';
+          }
+        } catch (e) {
+          // ignore
+        }
+        return response;
+      },
       providesTags: (result, error, id) => [{ type: 'Projects', id }],
     }),
 

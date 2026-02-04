@@ -472,12 +472,12 @@ const ProjectGroupList: React.FC<ProjectGroupListProps> = ({
               {project.name}
             </Title>
 
-            {/* Client name */}
-            {project.client_name && (
+            {/* Team name */}
+            {project.team_name && (
               <div style={styles.clientName}>
-                <UserOutlined />
+                <TeamOutlined />
                 <Text ellipsis style={{ color: 'inherit' }}>
-                  {project.client_name}
+                  {project.team_name}
                 </Text>
               </div>
             )}

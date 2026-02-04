@@ -625,9 +625,9 @@ const ProjectList: React.FC = () => {
         ),
       },
       {
-        title: t('client'),
-        dataIndex: 'client_name',
-        key: 'client_name',
+        title: t('team'),
+        dataIndex: 'team_name',
+        key: 'team_name',
         sorter: true,
         showSorterTooltip: false,
       },
