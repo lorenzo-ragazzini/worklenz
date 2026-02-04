@@ -126,11 +126,24 @@ export default class ProjectsController extends WorklenzControllerBase {
   public static async getMyProjects(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, size, offset} = this.toPaginationOptions(req.query, "name");
 
-    const isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)` : "";
+    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
+
+    // If favorites filter requested but user has no favorites, ignore the filter so user still sees projects
+    if (req.query.filter === "1") {
+      try {
+        const favCheck = await db.query(`SELECT 1 FROM favorite_projects WHERE user_id = $1 LIMIT 1`, [req.user?.id || null]);
+        if ((favCheck.rowCount || 0) === 0) {
+          console.debug("getMyProjects: favorites filter requested but user has no favorites - ignoring favorites filter");
+          isFavorites = "";
+        }
+      } catch (err: any) {
+        console.error("getMyProjects: favorite check error", err?.message || err);
+      }
+    }
 
     const isArchived = req.query.filter === "2"
-      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`
-      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`;
+      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`
+      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`;
     const q = `
       SELECT ROW_TO_JSON(rec) AS projects
       FROM (SELECT COUNT(*) AS total,
@@ -139,11 +152,11 @@ export default class ProjectsController extends WorklenzControllerBase {
                                  name,
                                  EXISTS(SELECT user_id
                                         FROM favorite_projects
-                                        WHERE user_id = '${req.user?.id}'
+                                        WHERE user_id = $2
                                           AND project_id = projects.id) AS favorite,
                                  EXISTS(SELECT user_id
                                         FROM archived_projects
-                                        WHERE user_id = '${req.user?.id}'
+                                        WHERE user_id = $2
                                           AND project_id = projects.id) AS archived,
                                  color_code,
                                  (SELECT COUNT(*)
@@ -176,20 +189,16 @@ export default class ProjectsController extends WorklenzControllerBase {
                                            ELSE updated_at END) AS updated_at
                           FROM projects
                           WHERE team_id = $1 ${isArchived} ${isFavorites} ${searchQuery}
-                            AND is_member_of_project(projects.id
-                              , '${req.user?.id}'
-                              , $1)
+                            AND is_member_of_project(projects.id, $2, $1)
                           ORDER BY updated_at DESC
                           LIMIT $2 OFFSET $3) t) AS data
             FROM projects
             WHERE team_id = $1 ${isArchived} ${isFavorites} ${searchQuery}
-              AND is_member_of_project(projects.id
-                , '${req.user?.id}'
-                , $1)) rec;
+              AND is_member_of_project(projects.id, $2, $1)) rec;
     `;
     console.debug("getMyProjects: team_id", req.user?.team_id, "user_id", req.user?.id, "size", size, "offset", offset);
     try {
-      const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+      const result = await db.query(q, [req.user?.team_id || null, req.user?.id || null, size, offset]);
       const [data] = result.rows;
     const projects = Array.isArray(data?.projects.data) ? data?.projects.data : [];
     for (const project of projects) {
@@ -220,12 +229,25 @@ export default class ProjectsController extends WorklenzControllerBase {
   public static async get(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, sortField, sortOrder, size, offset} = this.toPaginationOptions(req.query, "name");
 
-    const filterByMember = ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) `;
+    const filterByMember = ` AND is_member_of_project(projects.id, $1, projects.team_id) `;
 
-    const isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)` : "";
+    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
+    // If favorites filter requested but user has no favorites, ignore the filter so user still sees projects
+    if (req.query.filter === "1") {
+      try {
+        const favCheck = await db.query(`SELECT 1 FROM favorite_projects WHERE user_id = $1 LIMIT 1`, [req.user?.id || null]);
+        if ((favCheck.rowCount || 0) === 0) {
+          console.debug("get: favorites filter requested but user has no favorites - ignoring favorites filter");
+          isFavorites = "";
+        }
+      } catch (err: any) {
+        console.error("get: favorite check error", err?.message || err);
+      }
+    }
+
     const isArchived = req.query.filter === "2"
-      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`
-      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`;
+      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`
+      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`;
     const categories = this.getFilterByCategoryWhereClosure(req.query.categories as string);
     const statuses = this.getFilterByStatusWhereClosure(req.query.statuses as string);
 
@@ -238,13 +260,13 @@ export default class ProjectsController extends WorklenzControllerBase {
                                  (SELECT name FROM sys_project_statuses WHERE id = status_id) AS status,
                                  (SELECT color_code FROM sys_project_statuses WHERE id = status_id) AS status_color,
                                  (SELECT icon FROM sys_project_statuses WHERE id = status_id) AS status_icon,
-                                 EXISTS(SELECT user_id
+                                  EXISTS(SELECT user_id
                                         FROM favorite_projects
-                                        WHERE user_id = '${req.user?.id}'
+                                        WHERE user_id = $1
                                           AND project_id = projects.id) AS favorite,
                                  EXISTS(SELECT user_id
                                         FROM archived_projects
-                                        WHERE user_id = '${req.user?.id}'
+                                        WHERE user_id = $1
                                           AND project_id = projects.id) AS archived,
                                  color_code,
                                  start_date,
@@ -282,7 +304,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                                   (SELECT default_view
                                     FROM project_members prm
                                     WHERE prm.project_id = projects.id
-                                      AND team_member_id = '${req.user?.team_member_id}') AS team_member_default_view,
+                                      AND team_member_id = $2) AS team_member_default_view,
 
                                  (SELECT CASE
                                            WHEN ((SELECT MAX(updated_at)
@@ -296,16 +318,20 @@ export default class ProjectsController extends WorklenzControllerBase {
                                                      AND project_id = projects.id)
                                            ELSE updated_at END) AS updated_at
                           FROM projects
-                          WHERE team_id = $1 ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}
+                          WHERE is_member_of_project(projects.id, $1, projects.team_id) ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}
                           ORDER BY ${sortField} ${sortOrder}
-                          LIMIT $2 OFFSET $3) t) AS data
+                          LIMIT $3 OFFSET $4) t) AS data
             FROM projects
-            WHERE team_id = $1 ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}) rec;
+            WHERE is_member_of_project(projects.id, $1, projects.team_id) ${categories} ${statuses} ${isArchived} ${isFavorites} ${filterByMember} ${searchQuery}) rec;
     `;
-    console.debug("get projects: team_id", req.user?.team_id, "user_id", req.user?.id, "size", size, "offset", offset);
+    const params = [req.user?.id || null, req.user?.team_member_id || null, size, offset];
+    console.debug("get projects: user_id", req.user?.id, "team_member_id", req.user?.team_member_id, "size", size, "offset", offset, "filter", req.query.filter, "categories", categories, "statuses", statuses, "searchQueryPresent", !!req.query.search);
+    console.debug("get projects: sql", q);
+    console.debug("get projects: params", params);
     try {
-      const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+      const result = await db.query(q, params);
       const [data] = result.rows;
+      console.debug("get projects: total", data?.projects?.total, "returned", Array.isArray(data?.projects?.data) ? data.projects.data.length : 0);
 
       for (const project of data?.projects.data || []) {
       project.progress = project.all_tasks_count > 0
@@ -627,7 +653,7 @@ export default class ProjectsController extends WorklenzControllerBase {
   @HandleExceptions()
   public static async getAllTasks(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
     const {searchQuery, size, offset} = this.toPaginationOptions(req.query, ["tasks.name"]);
-    const filterByMember = ` AND is_member_of_project(p.id, '${req.user?.id}', $1) `;
+    const filterByMember = ` AND is_member_of_project(p.id, $2, p.team_id) `;
 
     const isDueSoon = req.query.filter == "1";
 
@@ -638,7 +664,7 @@ export default class ProjectsController extends WorklenzControllerBase {
         FROM tasks_assignees
         WHERE team_member_id = (SELECT id
                                 FROM team_members
-                                WHERE user_id = '${req.user?.id}'
+                                WHERE user_id = $2
                                   AND team_id = $1))
       ` : "";
 
@@ -662,15 +688,15 @@ export default class ProjectsController extends WorklenzControllerBase {
                           FROM tasks
                                  INNER JOIN projects p ON tasks.project_id = p.id
                           WHERE tasks.archived IS FALSE
-                            AND p.team_id = $1 ${filterByMember} ${dueSoon} ${searchQuery} ${assignedToMe}
+                            ${filterByMember} ${dueSoon} ${searchQuery} ${assignedToMe}
                           ORDER BY ${orderBy}
                           LIMIT $2 OFFSET $3) t) AS data
             FROM tasks
                    INNER JOIN projects p ON tasks.project_id = p.id
             WHERE tasks.archived IS FALSE
-              AND p.team_id = $1 ${filterByMember} ${dueSoon} ${searchQuery} ${assignedToMe}) rec;
+              ${filterByMember} ${dueSoon} ${searchQuery} ${assignedToMe}) rec;
     `;
-    const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+    const result = await db.query(q, [req.user?.team_id || null, req.user?.id || null, size, offset]);
     const [data] = result.rows;
 
     for (const project of data?.projects.data || []) {
@@ -771,12 +797,25 @@ export default class ProjectsController extends WorklenzControllerBase {
     const {searchQuery, sortField, sortOrder, size, offset} = this.toPaginationOptions(req.query, ["projects.name"]);
     const groupBy = req.query.groupBy as string || "category";
 
-    const filterByMember = ` AND is_member_of_project(projects.id, '${req.user?.id}', $1) `;
+    const filterByMember = ` AND is_member_of_project(projects.id, $2, $1) `;
 
-    const isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)` : "";
+    let isFavorites = req.query.filter === "1" ? ` AND EXISTS(SELECT user_id FROM favorite_projects WHERE user_id = $2 AND project_id = projects.id)` : "";
+    // If favorites filter requested but user has no favorites, ignore the filter so grouped view still shows projects
+    if (req.query.filter === "1") {
+      try {
+        const favCheck = await db.query(`SELECT 1 FROM favorite_projects WHERE user_id = $1 LIMIT 1`, [req.user?.id || null]);
+        if ((favCheck.rowCount || 0) === 0) {
+          console.debug("getGrouped: favorites filter requested but user has no favorites - ignoring favorites filter");
+          isFavorites = "";
+        }
+      } catch (err: any) {
+        console.error("getGrouped: favorite check error", err?.message || err);
+      }
+    }
+
     const isArchived = req.query.filter === "2"
-      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`
-      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = '${req.user?.id}' AND project_id = projects.id)`;
+      ? ` AND EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`
+      : ` AND NOT EXISTS(SELECT user_id FROM archived_projects WHERE user_id = $2 AND project_id = projects.id)`;
     const categories = this.getFilterByCategoryWhereClosure(req.query.categories as string);
     const statuses = this.getFilterByStatusWhereClosure(req.query.statuses as string);
 
@@ -842,11 +881,11 @@ export default class ProjectsController extends WorklenzControllerBase {
                                    (SELECT sys_project_statuses.icon FROM sys_project_statuses WHERE sys_project_statuses.id = p2.status_id) AS status_icon,
                                    EXISTS(SELECT user_id
                                           FROM favorite_projects
-                                          WHERE user_id = '${req.user?.id}'
+                                          WHERE user_id = $2
                                             AND project_id = p2.id) AS favorite,
                                    EXISTS(SELECT user_id
                                           FROM archived_projects
-                                          WHERE user_id = '${req.user?.id}'
+                                          WHERE user_id = $2
                                             AND project_id = p2.id) AS archived,
                                    p2.color_code,
                                    p2.start_date,
@@ -882,7 +921,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                                    (SELECT project_members.default_view
                                       FROM project_members
                                       WHERE project_members.project_id = p2.id
-                                        AND project_members.team_member_id = '${req.user?.team_member_id}') AS team_member_default_view,
+                                        AND project_members.team_member_id = $3) AS team_member_default_view,
                                    (SELECT CASE
                                              WHEN ((SELECT MAX(tasks.updated_at)
                                                     FROM tasks
@@ -921,7 +960,7 @@ export default class ProjectsController extends WorklenzControllerBase {
       ) rec;
     `;
 
-    const result = await db.query(q, [req.user?.team_id || null, size, offset]);
+    const result = await db.query(q, [req.user?.team_id || null, req.user?.id || null, req.user?.team_member_id || null, size, offset]);
     const [data] = result.rows;
 
     // Process the grouped data
