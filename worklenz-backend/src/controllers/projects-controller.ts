@@ -150,6 +150,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                    (SELECT COALESCE(ARRAY_TO_JSON(ARRAY_AGG(ROW_TO_JSON(t))), '[]'::JSON)
                     FROM (SELECT id,
                                  name,
+                                 (SELECT name FROM teams WHERE id = projects.team_id) AS team_name,
                                  EXISTS(SELECT user_id
                                         FROM favorite_projects
                                         WHERE user_id = $2
@@ -290,6 +291,7 @@ export default class ProjectsController extends WorklenzControllerBase {
                                   WHERE project_id = projects.id) AS members_count,
                                  (SELECT get_project_members(projects.id)) AS names,
                                  (SELECT name FROM clients WHERE id = projects.client_id) AS client_name,
+                                 (SELECT name FROM teams WHERE id = projects.team_id) AS team_name,
                                  (SELECT name FROM users WHERE id = projects.owner_id) AS project_owner,
                                  (SELECT name FROM project_categories WHERE id = projects.category_id) AS category_name,
                                  (SELECT color_code
