@@ -625,11 +625,13 @@ const ProjectList: React.FC = () => {
         ),
       },
       {
-        title: t('client'),
-        dataIndex: 'client_name',
-        key: 'client_name',
+        title: 'Team',
+        dataIndex: 'team_name',
+        key: 'team_name',
         sorter: true,
         showSorterTooltip: false,
+        render: (_: string, record: IProjectViewModel) =>
+          (record as any).team_name || (record as any).client_name || (record as any).client || '-',
       },
       {
         title: t('category'),

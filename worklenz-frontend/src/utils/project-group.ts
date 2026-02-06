@@ -14,7 +14,7 @@ export const groupProjects = (
 
     switch (groupBy) {
       case ProjectGroupBy.CLIENT:
-        groupKey = project.client_name || 'No Client';
+        groupKey = project.team_name || 'No Team';
         groupName = groupKey;
         groupColor = '#688';
         break;
