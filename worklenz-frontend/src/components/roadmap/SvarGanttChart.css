@@ -1,0 +1,50 @@
+.svar-gantt-wrapper {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Customize SVAR Gantt colors to match Worklenz theme */
+.wx-willow {
+  --wx-color-primary: #1890ff;
+  --wx-color-primary-hover: #40a9ff;
+  --wx-color-font: #181818;
+  --wx-color-font-alt: #8c8c8c;
+  --wx-background: #ffffff;
+  --wx-background-alt: #fafafa;
+  --wx-border: #e0e0e0;
+}
+
+.wx-willow-dark {
+  --wx-color-primary: #177ddc;
+  --wx-color-primary-hover: #1890ff;
+  --wx-color-font: #ffffff;
+  --wx-color-font-alt: #8c8c8c;
+  --wx-background: #141414;
+  --wx-background-alt: #1d1d1d;
+  --wx-border: #505050;
+}
+
+/* Customize progress bar colors based on status */
+.task-status-todo .wx-bar {
+  background-color: #a9a9a9;
+}
+
+.task-status-doing .wx-bar {
+  background-color: #70a6f3;
+}
+
+.task-status-done .wx-bar {
+  background-color: #75c997;
+}
+
+/* Adjust grid column widths for better readability */
+.wx-grid-cell {
+  padding: 8px 12px;
+}
+
+/* Today indicator */
+.wx-today-line {
+  stroke: rgba(64, 150, 255, 0.4);
+  stroke-width: 2;
+}

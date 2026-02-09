@@ -1,152 +1,210 @@
-import React, { useEffect, useRef } from 'react';
-import { useMixpanelTracking } from '../../../../hooks/useMixpanelTracking';
-import { evt_project_roadmap_visit } from '../../../../shared/worklenz-analytics-events';
+import React, { useEffect, useState } from 'react';
+import { Spin, Alert, Space, Select, Input, Checkbox } from '@/shared/antd-imports';
+import { useAppSelector } from '@/hooks/useAppSelector';
+import { useAppDispatch } from '@/hooks/useAppDispatch';
+import {
+  fetchRoadmapData,
+  setViewMode,
+  setGroupBy,
+  setShowArchived,
+  setSearchTerm,
+  clearError
+} from '@/features/roadmap/roadmap-slice';
+import { setProjectId, getProject } from '@/features/project/project.slice';
+import { SvarGanttChart } from '@/components/roadmap/SvarGanttChart';
+import { TimeFilter } from './time-filter';
+import { projectsApiService } from '@/api/projects/projects.api.service';
+import { IProjectViewModel } from '@/types/project/projectViewModel.types';
 import './project-view-roadmap.css';
-import { Flex } from '@/shared/antd-imports';
-import { useAppSelector } from '../../../../hooks/useAppSelector';
-import { useAppDispatch } from '../../../../hooks/useAppDispatch';
-import { updateTaskDate, updateTaskProgress } from '../../../../features/roadmap/roadmap-slice';
-import apiClient from '@api/api-client';
-import { API_BASE_URL } from '@/shared/constants';
-import { selectRoadmap, selectCurrentProject } from '@/app/selectors';
 
-// This view embeds the external SVAR React app via iframe and accepts postMessage events to update roadmap state.
 const ProjectViewRoadmap: React.FC = () => {
-  const { trackMixpanelEvent } = useMixpanelTracking();
-  const themeMode = useAppSelector(state => state.themeReducer.mode);
-  const roadmap = useAppSelector(selectRoadmap);
-  const currentProject = useAppSelector(selectCurrentProject);
   const dispatch = useAppDispatch();
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [availableProjects, setAvailableProjects] = useState<IProjectViewModel[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
-  useEffect(() => {
-    trackMixpanelEvent(evt_project_roadmap_visit);
-  }, [trackMixpanelEvent]);
+  // Redux state
+  const projectId = useAppSelector(state => state.projectReducer.projectId);
+  const currentProject = useAppSelector(state => state.projectReducer.project);
+  const timeZone = useAppSelector(state => state.userReducer.timezone || 'UTC');
+  const loading = useAppSelector(state => state.roadmapReducer.loading);
+  const error = useAppSelector(state => state.roadmapReducer.error);
+  const viewMode = useAppSelector(state => state.roadmapReducer.viewMode);
+  const groupBy = useAppSelector(state => state.roadmapReducer.groupBy);
+  const showArchived = useAppSelector(state => state.roadmapReducer.showArchived);
+  const searchTerm = useAppSelector(state => state.roadmapReducer.searchTerm);
 
-  // Listen for messages from the SVAR iframe and dispatch roadmap updates
+  /**
+   * Fetch available projects for the selector
+   */
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      // Basic origin check: if VITE_SVAR_URL is absolute, restrict to that origin.
-      const svarUrl = import.meta.env.VITE_SVAR_URL || '/svar';
-      let allowedOrigin: string | null = null;
+    const fetchProjects = async () => {
       try {
-        allowedOrigin = svarUrl.startsWith('http') ? new URL(svarUrl).origin : null;
-        if (allowedOrigin && e.origin !== allowedOrigin) return;
-      } catch (err) {
-        // ignore URL parsing errors and allow messages (local dev / relative paths)
-      }
-
-      let data: any = e.data;
-      if (typeof data === 'string') {
-        try {
-          data = JSON.parse(data);
-        } catch (err) {
-          return;
+        setProjectsLoading(true);
+        const response = await projectsApiService.getProjects(1, 100, 'name', 'asc', '', null, '', '');
+        if (response.body?.data) {
+          setAvailableProjects(response.body.data);
         }
-      }
-
-      if (!data || !data.type) return;
-
-      switch (data.type) {
-        case 'updateTaskDate': {
-          const { taskId, start, end } = data.payload || {};
-          if (taskId && start && end) {
-            // Update redux state
-            dispatch(updateTaskDate({ taskId, start: new Date(start), end: new Date(end) }));
-
-            // Persist change to backend (use duration endpoint)
-            (async () => {
-              try {
-                await apiClient.put(`${API_BASE_URL}/tasks/duration/${taskId}`, {
-                  start: new Date(start).toISOString(),
-                  end: new Date(end).toISOString(),
-                });
-              } catch (err) {
-                // ignore - action already applied locally; backend failure will be surfaced by apiClient
-                // Optionally, could revert state here if desired
-              }
-            })();
-          }
-          break;
-        }
-        case 'updateTaskProgress': {
-          const { taskId, progress, totalTasksCount, completedCount } = data.payload || {};
-          if (taskId != null && progress != null) {
-            dispatch(updateTaskProgress({ taskId, progress, totalTasksCount, completedCount }));
-            // Let backend recalculate progress via refresh endpoint for the project if available
-            if (currentProject?.id) {
-              (async () => {
-                try {
-                  await apiClient.post(`${API_BASE_URL}/tasks/refresh-progress/${currentProject.id}`);
-                } catch (err) {
-                  // ignore
-                }
-              })();
-            }
-          }
-          break;
-        }
-        case 'requestInitialData': {
-          // iframe asked for initial data; send roadmap + project id
-          const targetOrigin = (() => {
-            try {
-              const svar = import.meta.env.VITE_SVAR_URL || '/svar';
-              return svar.startsWith('http') ? new URL(svar).origin : '*';
-            } catch (err) {
-              return '*';
-            }
-          })();
-
-          iframeRef.current?.contentWindow?.postMessage(
-            {
-              type: 'initialData',
-              payload: { roadmap: roadmap.tasksList || [], projectId: currentProject?.id || null },
-            },
-            targetOrigin
-          );
-          break;
-        }
-        default:
-          break;
+      } catch (error) {
+        console.error('Failed to fetch projects:', error);
+      } finally {
+        setProjectsLoading(false);
       }
     };
 
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [dispatch, roadmap.tasksList, currentProject]);
+    fetchProjects();
+  }, []);
 
-  const svarUrl = import.meta.env.VITE_SVAR_URL || '/svar';
+  /**
+   * Fetch roadmap data on mount and when filters change
+   */
+  useEffect(() => {
+    if (projectId) {
+      dispatch(fetchRoadmapData({
+        projectId,
+        timeZone,
+        groupBy,
+        archived: showArchived,
+        search: searchTerm
+      }));
+    }
+  }, [dispatch, projectId, timeZone, groupBy, showArchived, searchTerm]);
 
-  const onIframeLoad = () => {
-    // send initial data on load
-    const targetOrigin = (() => {
-      try {
-        const svar = import.meta.env.VITE_SVAR_URL || '/svar';
-        return svar.startsWith('http') ? new URL(svar).origin : '*';
-      } catch (err) {
-        return '*';
-      }
-    })();
-
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: 'initialData',
-        payload: { roadmap: roadmap.tasksList || [], projectId: currentProject?.id || null },
-      },
-      targetOrigin
-    );
+  /**
+   * Handle view mode change
+   */
+  const handleViewModeChange = (mode: 'day' | 'week' | 'month') => {
+    dispatch(setViewMode(mode));
   };
 
+  /**
+   * Handle group by change
+   */
+  const handleGroupByChange = (value: 'status' | 'priority' | 'phase' | 'labels') => {
+    dispatch(setGroupBy(value));
+  };
+
+  /**
+   * Handle search input
+   */
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    dispatch(setSearchTerm(e.target.value));
+  };
+
+  /**
+   * Handle archived toggle
+   */
+  const handleArchivedToggle = (checked: boolean) => {
+    dispatch(setShowArchived(checked));
+  };
+
+  /**
+   * Handle project selection change
+   */
+  const handleProjectChange = (selectedProjectId: string) => {
+    dispatch(setProjectId(selectedProjectId));
+    // Also fetch the full project data like the main project view does
+    dispatch(getProject(selectedProjectId));
+  };
+
+  if (!projectId) {
+    return (
+      <div className="roadmap-container">
+        <Alert
+          message="No project selected"
+          description="Please select a project to view the roadmap."
+          type="info"
+          showIcon
+        />
+      </div>
+    );
+  }
+
   return (
-    <Flex vertical className={`${themeMode === 'dark' ? 'dark-theme' : ''}`} style={{ height: '100%' }}>
-      <iframe
-        ref={iframeRef}
-        title="SVAR React"
-        src={svarUrl}
-        onLoad={onIframeLoad}
-        style={{ border: 0, width: '100%', height: '100%', minHeight: 600 }}
-      />
-    </Flex>
+    <div className="roadmap-container">
+      {/* Toolbar */}
+      <div className="roadmap-toolbar">
+        <Space>
+          {/* Project selector */}
+          <Select
+            value={projectId}
+            onChange={handleProjectChange}
+            loading={projectsLoading}
+            placeholder="Select project"
+            style={{ width: 200 }}
+            showSearch
+            optionFilterProp="children"
+            filterOption={(input, option) =>
+              (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+          >
+            {availableProjects.map((project) => (
+              <Select.Option key={project.id} value={project.id}>
+                {project.name}
+              </Select.Option>
+            ))}
+          </Select>
+
+          {/* View mode selector */}
+          <TimeFilter
+            view={viewMode}
+            onViewChange={handleViewModeChange}
+          />
+
+          {/* Group by selector */}
+          <Select
+            value={groupBy}
+            onChange={handleGroupByChange}
+            style={{ width: 150 }}
+          >
+            <Select.Option value="status">By Status</Select.Option>
+            <Select.Option value="priority">By Priority</Select.Option>
+            <Select.Option value="phase">By Phase</Select.Option>
+            <Select.Option value="labels">By Labels</Select.Option>
+          </Select>
+
+          {/* Search input */}
+          <Input.Search
+            placeholder="Search tasks..."
+            value={searchTerm}
+            onChange={handleSearchChange}
+            style={{ width: 250 }}
+            allowClear
+          />
+
+          {/* Show archived checkbox */}
+          <Checkbox
+            checked={showArchived}
+            onChange={(e) => handleArchivedToggle(e.target.checked)}
+          >
+            Show Archived
+          </Checkbox>
+        </Space>
+      </div>
+
+      {/* Error display */}
+      {error && (
+        <Alert
+          message="Error loading roadmap"
+          description={error}
+          type="error"
+          showIcon
+          closable
+          onClose={() => dispatch(clearError())}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {/* Gantt chart */}
+      <div className="roadmap-gantt-container">
+        {loading ? (
+          <div className="roadmap-loading">
+            <Spin size="large" tip="Loading roadmap..." />
+          </div>
+        ) : (
+          <SvarGanttChart projectId={projectId} />
+        )}
+      </div>
+    </div>
   );
 };
 

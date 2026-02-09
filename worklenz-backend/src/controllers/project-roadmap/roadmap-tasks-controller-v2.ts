@@ -203,7 +203,7 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
       ORDER BY t.start_date ASC NULLS LAST`;
   }
 
-  public static async getGroups(groupBy: string, projectId: string): Promise<IRMTaskGroup[]> {
+  public static async getGroups(groupBy: string, projectId: string, teamId?: string): Promise<IRMTaskGroup[]> {
     let q = "";
     let params: any[] = [];
     switch (groupBy) {
@@ -225,6 +225,11 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
              ORDER BY value DESC;`;
         break;
       case GroupBy.LABELS:
+        // Get team_id from project if not provided
+        if (!teamId) {
+          const teamResult = await db.query(`SELECT team_id FROM projects WHERE id = $1`, [projectId]);
+          teamId = teamResult.rows[0]?.team_id;
+        }
         q = `
           SELECT id, name, color_code
           FROM team_labels
@@ -235,6 +240,7 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
                          AND EXISTS(SELECT 1 FROM task_labels WHERE task_id = tasks.id AND label_id = team_labels.id))
           ORDER BY name;
         `;
+        params = [projectId, teamId];
         break;
       case GroupBy.PHASE:
         q = `
