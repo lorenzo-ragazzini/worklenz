@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { roadmapApiService, TaskGroup, BackendTask } from '@/api/roadmap/roadmap.api.service';
-import { SvarTask, transformTaskGroupsToSvar } from './roadmap-transformers';
+import { SvarTask, transformTaskGroupsToSvar, transformBackendTaskToSvar } from './roadmap-transformers';
 
 interface RoadmapState {
   // SVAR tasks (transformed from backend)
@@ -119,8 +119,8 @@ const roadmapSlice = createSlice({
     }>) {
       const task = state.tasks.find(t => t.id === action.payload.taskId);
       if (task) {
-        task.start = action.payload.start;
-        task.end = action.payload.end;
+        task.start = action.payload.start.toISOString().split('T')[0]; // Convert to YYYY-MM-DD
+        task.end = action.payload.end.toISOString().split('T')[0]; // Convert to YYYY-MM-DD
 
         // Recalculate duration
         const duration = Math.ceil(
@@ -181,24 +181,10 @@ const roadmapSlice = createSlice({
       state.error = action.error.message || 'Failed to fetch roadmap data';
     });
 
-    // Fetch subtasks
+    // Fetch subtasks - handled by SVAR lazy loading, no Redux state update needed
     builder.addCase(fetchSubtasks.fulfilled, (state, action) => {
-      const { parentTaskId, subtasks } = action.payload;
-
-      // Find the parent task and insert subtasks after it
-      const parentIndex = state.tasks.findIndex(t => t.id === parentTaskId);
-      if (parentIndex !== -1) {
-        const parentTask = state.tasks[parentIndex];
-        const colorCode = parentTask.color_code;
-
-        // Transform subtasks to SVAR format
-        const svarSubtasks = subtasks.map(subtask =>
-          transformBackendTaskToSvar(subtask, parentTaskId, colorCode)
-        );
-
-        // Insert subtasks after parent
-        state.tasks.splice(parentIndex + 1, 0, ...svarSubtasks);
-      }
+      // Subtasks are handled directly by SVAR via provide-data API
+      // No need to update Redux state for lazy loaded subtasks
     });
   }
 });

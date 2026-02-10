@@ -74,11 +74,11 @@ export class RoadmapApiService {
    * Fetch date range and calendar data for Gantt chart timeline
    */
   async getChartDates(params: { projectId: string; timeZone: string }): Promise<ChartDateRange> {
-    const response = await this.client.get<{ done: boolean; body: ChartDateRange }>(
+    const response = await this.client.get<ChartDateRange>(
       `${API_BASE_URL}/chart-dates/${params.projectId}`,
       { params: { timeZone: params.timeZone } }
     );
-    return response.data.body;
+    return response.data;
   }
 
   /**
@@ -87,7 +87,7 @@ export class RoadmapApiService {
   async getTaskGroups(params: RoadmapApiParams): Promise<TaskGroup[]> {
     const { projectId, timeZone, group = 'status', archived = false, search } = params;
 
-    const response = await this.client.get<{ done: boolean; body: TaskGroup[] }>(
+    const response = await this.client.get<TaskGroup[]>(
       `${API_BASE_URL}/task-groups/${projectId}`,
       {
         params: {
@@ -98,7 +98,7 @@ export class RoadmapApiService {
         }
       }
     );
-    return response.data.body;
+    return response.data;
   }
 
   /**
@@ -109,7 +109,7 @@ export class RoadmapApiService {
     parentTaskId: string;
     timeZone: string;
   }): Promise<BackendTask[]> {
-    const response = await this.client.get<{ done: boolean; body: BackendTask[] }>(
+    const response = await this.client.get<BackendTask[]>(
       `${API_BASE_URL}/task-groups/${params.projectId}`,
       {
         params: {
@@ -118,7 +118,7 @@ export class RoadmapApiService {
         }
       }
     );
-    return response.data.body;
+    return response.data;
   }
 }
 

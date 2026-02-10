@@ -6,8 +6,8 @@ import { BackendTask, TaskGroup } from '@/api/roadmap/roadmap.api.service';
 export interface SvarTask {
   id: string | number;
   text: string;
-  start?: Date;
-  end?: Date;
+  start?: string; // YYYY-MM-DD format
+  end?: string; // YYYY-MM-DD format
   duration?: number;
   progress?: number;
   type?: 'task' | 'summary' | 'milestone';
@@ -77,8 +77,8 @@ export function transformBackendTaskToSvar(
   return {
     id: task.id,
     text: task.name,
-    start: startDate,
-    end: endDate,
+    start: startDate ? startDate.toISOString().split('T')[0] : undefined, // Convert to YYYY-MM-DD format
+    end: endDate ? endDate.toISOString().split('T')[0] : undefined, // Convert to YYYY-MM-DD format
     duration,
     progress,
     type,
@@ -177,8 +177,8 @@ export function transformSvarTaskToBackend(
 } {
   return {
     taskId: String(svarTask.id),
-    start: svarTask.start ? svarTask.start.toISOString() : undefined,
-    end: svarTask.end ? svarTask.end.toISOString() : undefined,
+    start: svarTask.start ? new Date(svarTask.start).toISOString() : undefined,
+    end: svarTask.end ? new Date(svarTask.end).toISOString() : undefined,
     progress: svarTask.progress
   };
 }

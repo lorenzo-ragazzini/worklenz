@@ -9,7 +9,7 @@ import {
   updateTaskProgress,
   setViewMode
 } from '@/features/roadmap/roadmap-slice';
-import { transformSvarTaskToBackend } from '@/features/roadmap/roadmap-transformers';
+import { transformSvarTaskToBackend, transformBackendTaskToSvar } from '@/features/roadmap/roadmap-transformers';
 import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
 import apiClient from '@/api/api-client';
 import { TaskContextMenu } from './TaskContextMenu';
@@ -128,11 +128,16 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
         timeZone
       })).unwrap();
 
+      // Transform subtasks to SVAR format before providing to SVAR
+      const transformedSubtasks = result.subtasks.map((subtask: any) =>
+        transformBackendTaskToSvar(subtask, String(id), result.subtasks[0]?.color_code || '#1890ff')
+      );
+
       // Provide data back to SVAR
       if (api) {
         api.exec('provide-data', {
           id,
-          data: result.subtasks
+          data: transformedSubtasks
         });
       }
     } catch (error) {
@@ -185,11 +190,9 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
       // Task selection
       api.on('select-task', handleTaskSelect);
 
-      // Cleanup
+      // Cleanup - SVAR handles event listener cleanup automatically
       return () => {
-        api.off('update-task', handleTaskUpdate);
-        api.off('request-data', handleRequestData);
-        api.off('select-task', handleTaskSelect);
+        // Event listeners are automatically cleaned up by SVAR when component unmounts
       };
     }
   }, [api, handleTaskUpdate, handleRequestData, handleTaskSelect]);
