@@ -101,6 +101,7 @@ export function transformBackendTaskToSvar(
 
 /**
  * Transform task groups from backend into flat SVAR task array with group headers
+ * Now handles hierarchical task structure within groups
  */
 export function transformTaskGroupsToSvar(taskGroups: TaskGroup[]): SvarTask[] {
   const svarTasks: SvarTask[] = [];
@@ -126,18 +127,34 @@ export function transformTaskGroupsToSvar(taskGroups: TaskGroup[]): SvarTask[] {
     };
     svarTasks.push(groupHeaderTask);
 
-    // Add all tasks in this group
+    // Add all tasks in this group (now handles hierarchy recursively)
     group.tasks.forEach((task) => {
-      const svarTask = transformBackendTaskToSvar(
-        task,
-        `group-${group.id}`,
-        group.color_code
-      );
-      svarTasks.push(svarTask);
+      addTaskWithHierarchyToSvar(task, svarTasks, `group-${group.id}`, group.color_code);
     });
   });
 
   return svarTasks;
+}
+
+/**
+ * Recursively add task and its subtasks to SVAR format
+ */
+function addTaskWithHierarchyToSvar(
+  task: any,
+  svarTasks: SvarTask[],
+  parentId: string,
+  colorCode?: string
+): void {
+  // Add the main task
+  const svarTask = transformBackendTaskToSvar(task, parentId, colorCode);
+  svarTasks.push(svarTask);
+
+  // Recursively add subtasks if they exist
+  if (task.subtasks && Array.isArray(task.subtasks)) {
+    task.subtasks.forEach((subtask: any) => {
+      addTaskWithHierarchyToSvar(subtask, svarTasks, task.id, colorCode);
+    });
+  }
 }
 
 /**

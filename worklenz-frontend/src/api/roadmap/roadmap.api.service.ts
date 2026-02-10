@@ -78,7 +78,7 @@ export class RoadmapApiService {
       `${API_BASE_URL}/chart-dates/${params.projectId}`,
       { params: { timeZone: params.timeZone } }
     );
-    return response.data;
+    return response.body;
   }
 
   /**
@@ -98,7 +98,7 @@ export class RoadmapApiService {
         }
       }
     );
-    return response.data;
+    return response.body;
   }
 
   /**
@@ -118,7 +118,7 @@ export class RoadmapApiService {
         }
       }
     );
-    return response.data;
+    return response.body;
   }
 }
 

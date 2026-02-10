@@ -293,6 +293,13 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
       };
     });
 
+    // Sort groups so UNMAPPED (unassigned tasks) comes first
+    updatedGroups.sort((a, b) => {
+      if (a.id === UNMAPPED) return -1;
+      if (b.id === UNMAPPED) return 1;
+      return 0; // Keep other groups in their original order
+    });
+
     if (req.query.expandedGroups) {
       const expandedGroup = updatedGroups.find(g => g.id === req.query.expandedGroups);
       if (expandedGroup) expandedGroup.is_expanded = true;
@@ -308,29 +315,83 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
   }, expandedGroup: string, timeZone: string) {
     let index = 0;
     const unmapped = [];
+
+    // Process tasks and build hierarchical structure
     for (const task of tasks) {
       task.index = index++;
       RoadmapTasksControllerV2.updateTaskViewModel(task, moment(this.GLOBAL_START_DATE), this.GLOBAL_DATE_WIDTH, timeZone);
+
       if (groupBy === GroupBy.STATUS) {
         map[task.status]?.tasks.push(task);
       } else if (groupBy === GroupBy.PRIORITY) {
         map[task.priority]?.tasks.push(task);
-      } else if (groupBy === GroupBy.PHASE && task.phase_id) {
-        map[task.phase_id]?.tasks.push(task);
+      } else if (groupBy === GroupBy.PHASE) {
+        // Phase grouping with hierarchy
+        if (task.phase_id) {
+          this.addTaskToPhaseGroup(map[task.phase_id], task);
+        } else {
+          unmapped.push(task);
+        }
       } else {
         unmapped.push(task);
       }
     }
 
+    // Handle unmapped tasks (no phase) - these go first
     if (unmapped.length) {
-      map[UNMAPPED] = {
+      // Build hierarchy for unmapped tasks
+      const unmappedGroup = {
         name: UNMAPPED,
         category_id: null,
         color_code: "#f0f0f0",
-        tasks: unmapped,
+        tasks: [],
         is_expanded: false
       };
+
+      // Build hierarchical structure for unmapped tasks
+      this.buildHierarchicalTasks(unmapped, unmappedGroup.tasks);
+      map[UNMAPPED] = unmappedGroup;
     }
+  }
+
+  /**
+   * Add task to phase group, building hierarchy
+   */
+  private static addTaskToPhaseGroup(phaseGroup: IRMTaskGroup, task: any) {
+    if (!phaseGroup.tasks) {
+      phaseGroup.tasks = [];
+    }
+    this.buildHierarchicalTasks([task], phaseGroup.tasks);
+  }
+
+  /**
+   * Build hierarchical task structure within a group
+   */
+  private static buildHierarchicalTasks(tasks: any[], targetArray: any[]) {
+    const taskMap = new Map();
+    const rootTasks = [];
+
+    // First pass: create task map
+    for (const task of tasks) {
+      taskMap.set(task.id, { ...task, subtasks: [] });
+    }
+
+    // Second pass: build hierarchy
+    for (const task of tasks) {
+      const taskWithSubs = taskMap.get(task.id);
+
+      if (task.parent_task_id && taskMap.has(task.parent_task_id)) {
+        // This is a subtask - add to parent's subtasks
+        const parent = taskMap.get(task.parent_task_id);
+        parent.subtasks.push(taskWithSubs);
+      } else {
+        // This is a root task
+        rootTasks.push(taskWithSubs);
+      }
+    }
+
+    // Add root tasks to target array
+    targetArray.push(...rootTasks);
   }
 
 
