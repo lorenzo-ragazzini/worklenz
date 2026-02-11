@@ -114,19 +114,23 @@ const roadmapSlice = createSlice({
      */
     updateTaskDate(state, action: PayloadAction<{
       taskId: string;
-      start: Date;
-      end: Date;
+      start: Date | null;
+      end: Date | null;
     }>) {
       const task = state.tasks.find(t => t.id === action.payload.taskId);
       if (task) {
-        task.start = action.payload.start.toISOString().split('T')[0]; // Convert to YYYY-MM-DD
-        task.end = action.payload.end.toISOString().split('T')[0]; // Convert to YYYY-MM-DD
+        task.start = action.payload.start ? action.payload.start.toISOString().split('T')[0] : null; // Convert to YYYY-MM-DD or null
+        task.end = action.payload.end ? action.payload.end.toISOString().split('T')[0] : null; // Convert to YYYY-MM-DD or null
 
-        // Recalculate duration
-        const duration = Math.ceil(
-          (action.payload.end.getTime() - action.payload.start.getTime()) / (1000 * 60 * 60 * 24)
-        ) + 1;
-        task.duration = duration;
+        // Recalculate duration if both dates exist
+        if (action.payload.start && action.payload.end) {
+          const duration = Math.ceil(
+            (action.payload.end.getTime() - action.payload.start.getTime()) / (1000 * 60 * 60 * 24)
+          ) + 1;
+          task.duration = duration;
+        } else {
+          task.duration = undefined; // Clear duration for undated tasks
+        }
       }
     },
 

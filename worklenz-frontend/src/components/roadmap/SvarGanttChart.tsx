@@ -84,18 +84,20 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
 
     try {
       // Optimistic update in Redux
-      if (start || end) {
+      if (start !== undefined || end !== undefined) {
         dispatch(updateTaskDate({
           taskId: String(id),
-          start: new Date(start),
-          end: new Date(end)
+          start: start ? new Date(start) : null,
+          end: end ? new Date(end) : null
         }));
 
-        // Persist to backend
-        await apiClient.put(`/tasks/duration/${id}`, {
-          start: new Date(start).toISOString(),
-          end: new Date(end).toISOString()
-        });
+        // Persist to backend only if dates are provided
+        if (start || end) {
+          await apiClient.put(`/tasks/duration/${id}`, {
+            start: start ? new Date(start).toISOString() : null,
+            end: end ? new Date(end).toISOString() : null
+          });
+        }
       }
 
       if (progress !== undefined) {

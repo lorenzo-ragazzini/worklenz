@@ -77,8 +77,8 @@ export function transformBackendTaskToSvar(
   return {
     id: task.id,
     text: task.name,
-    start: startDate ? startDate.toISOString().split('T')[0] : undefined, // Convert to YYYY-MM-DD format
-    end: endDate ? endDate.toISOString().split('T')[0] : undefined, // Convert to YYYY-MM-DD format
+    start: startDate ? startDate.toISOString().split('T')[0] : null, // Use null for undated tasks to show in grid
+    end: endDate ? endDate.toISOString().split('T')[0] : null, // Use null for undated tasks to show in grid
     duration,
     progress,
     type,
