@@ -167,8 +167,8 @@ export const fetchBoardTaskGroups = createAsyncThunk(
   'board/fetchBoardTaskGroups',
   async (projectId: string, { rejectWithValue, getState }) => {
     try {
-      const state = getState() as { boardReducer: BoardState };
-      const { boardReducer } = state;
+      const state = getState() as { boardReducer: BoardState; projectReducer: any };
+      const { boardReducer, projectReducer } = state;
 
       const selectedMembers = boardReducer.taskAssignees
         .filter(member => member.selected)
@@ -180,6 +180,10 @@ export const fetchBoardTaskGroups = createAsyncThunk(
         .map(label => label.id)
         .join(' ');
 
+      // Get selected projects from projectReducer
+      const selectedProjects = projectReducer.selectedProjects || [];
+      const projectsFilter = selectedProjects.length > 0 ? selectedProjects.join(',') : '';
+
       const config: ITaskListConfigV2 = {
         id: projectId,
         archived: boardReducer.archived,
@@ -189,7 +193,7 @@ export const fetchBoardTaskGroups = createAsyncThunk(
         search: boardReducer.search || '',
         statuses: '',
         members: selectedMembers,
-        projects: '',
+        projects: projectsFilter,
         isSubtasksInclude: boardReducer.isSubtasksInclude,
         labels: selectedLabels,
         priorities: boardReducer.priorities.join(' '),
@@ -214,8 +218,8 @@ export const fetchBoardSubTasks = createAsyncThunk(
     { rejectWithValue, getState }
   ) => {
     try {
-      const state = getState() as { boardReducer: BoardState };
-      const { boardReducer } = state;
+      const state = getState() as { boardReducer: BoardState; projectReducer: any };
+      const { boardReducer, projectReducer } = state;
 
       // Check if the task is already expanded
       const task = boardReducer.taskGroups.flatMap(group => group.tasks).find(t => t.id === taskId);
@@ -235,6 +239,10 @@ export const fetchBoardSubTasks = createAsyncThunk(
         .map(label => label.id)
         .join(' ');
 
+      // Get selected projects from projectReducer
+      const selectedProjects = projectReducer.selectedProjects || [];
+      const projectsFilter = selectedProjects.length > 0 ? selectedProjects.join(',') : '';
+
       const config: ITaskListConfigV2 = {
         id: projectId,
         archived: boardReducer.archived,
@@ -244,7 +252,7 @@ export const fetchBoardSubTasks = createAsyncThunk(
         search: boardReducer.search || '',
         statuses: '',
         members: selectedMembers,
-        projects: '',
+        projects: projectsFilter,
         isSubtasksInclude: false,
         labels: selectedLabels,
         priorities: boardReducer.priorities.join(' '),
@@ -296,6 +304,7 @@ const findParentTaskInAllGroups = (
 const getTaskListConfig = (
   state: BoardState,
   projectId: string,
+  projectReducer: any,
   parentTaskId?: string
 ): ITaskListConfigV2 => {
   const selectedMembers = state.taskAssignees
@@ -308,6 +317,10 @@ const getTaskListConfig = (
     .map(label => label.id)
     .join(' ');
 
+  // Get selected projects from projectReducer
+  const selectedProjects = projectReducer?.selectedProjects || [];
+  const projectsFilter = selectedProjects.length > 0 ? selectedProjects.join(',') : '';
+
   return {
     id: projectId,
     archived: state.archived,
@@ -317,7 +330,7 @@ const getTaskListConfig = (
     search: state.search || '',
     statuses: '',
     members: selectedMembers,
-    projects: '',
+    projects: projectsFilter,
     isSubtasksInclude: state.isSubtasksInclude,
     labels: selectedLabels,
     priorities: state.priorities.join(' '),
