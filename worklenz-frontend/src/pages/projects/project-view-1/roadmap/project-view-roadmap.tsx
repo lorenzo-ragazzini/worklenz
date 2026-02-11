@@ -4,6 +4,8 @@ import { useAppSelector } from '@/hooks/useAppSelector';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import {
   fetchRoadmapData,
+  fetchRoadmapsForProjects,
+  setSelectedProjectIds,
   setViewMode,
   setGroupBy,
   setShowArchived,
@@ -32,6 +34,7 @@ const ProjectViewRoadmap: React.FC = () => {
   const groupBy = useAppSelector(state => state.roadmapReducer.groupBy);
   const showArchived = useAppSelector(state => state.roadmapReducer.showArchived);
   const searchTerm = useAppSelector(state => state.roadmapReducer.searchTerm);
+  const selectedProjectIds = useAppSelector(state => state.roadmapReducer.selectedProjectIds || []);
 
   /**
    * Fetch available projects for the selector
@@ -58,7 +61,18 @@ const ProjectViewRoadmap: React.FC = () => {
    * Fetch roadmap data on mount and when filters change
    */
   useEffect(() => {
-    if (projectId) {
+    if (selectedProjectIds && selectedProjectIds.length > 1) {
+      const projectsToFetch = availableProjects
+        .filter(p => selectedProjectIds.includes(p.id))
+        .map(p => ({ id: p.id, name: p.name }));
+      dispatch(fetchRoadmapsForProjects({
+        projects: projectsToFetch,
+        timeZone,
+        groupBy,
+        archived: showArchived,
+        search: searchTerm
+      }));
+    } else if (projectId) {
       dispatch(fetchRoadmapData({
         projectId,
         timeZone,
@@ -67,7 +81,7 @@ const ProjectViewRoadmap: React.FC = () => {
         search: searchTerm
       }));
     }
-  }, [dispatch, projectId, timeZone, groupBy, showArchived, searchTerm]);
+  }, [dispatch, projectId, selectedProjectIds, timeZone, groupBy, showArchived, searchTerm]);
 
   /**
    * Handle view mode change
@@ -100,13 +114,37 @@ const ProjectViewRoadmap: React.FC = () => {
   /**
    * Handle project selection change
    */
-  const handleProjectChange = (selectedProjectId: string) => {
-    dispatch(setProjectId(selectedProjectId));
-    // Also fetch the full project data like the main project view does
-    dispatch(getProject(selectedProjectId));
+  const handleProjectChange = (selected: string | string[]) => {
+    if (Array.isArray(selected)) {
+      if (selected.length === 1) {
+        const singleId = selected[0];
+        dispatch(setSelectedProjectIds([]));
+        dispatch(setProjectId(singleId));
+        dispatch(getProject(singleId));
+      } else if (selected.length > 1) {
+        dispatch(setSelectedProjectIds(selected));
+        const projectsToFetch = availableProjects
+          .filter(p => selected.includes(p.id))
+          .map(p => ({ id: p.id, name: p.name }));
+        dispatch(fetchRoadmapsForProjects({
+          projects: projectsToFetch,
+          timeZone,
+          groupBy,
+          archived: showArchived,
+          search: searchTerm
+        }));
+      } else {
+        dispatch(setSelectedProjectIds([]));
+      }
+    } else {
+      // single string value
+      dispatch(setSelectedProjectIds([]));
+      dispatch(setProjectId(selected));
+      dispatch(getProject(selected));
+    }
   };
 
-  if (!projectId) {
+  if (!projectId && (!selectedProjectIds || selectedProjectIds.length === 0)) {
     return (
       <div className="roadmap-container">
         <Alert
@@ -126,11 +164,12 @@ const ProjectViewRoadmap: React.FC = () => {
         <Space>
           {/* Project selector */}
           <Select
-            value={projectId}
+            mode="multiple"
+            value={selectedProjectIds && selectedProjectIds.length > 0 ? selectedProjectIds : (projectId ? [projectId] : [])}
             onChange={handleProjectChange}
             loading={projectsLoading}
-            placeholder="Select project"
-            style={{ width: 200 }}
+            placeholder="Select project(s)"
+            style={{ width: 300 }}
             showSearch
             optionFilterProp="children"
             filterOption={(input, option) =>

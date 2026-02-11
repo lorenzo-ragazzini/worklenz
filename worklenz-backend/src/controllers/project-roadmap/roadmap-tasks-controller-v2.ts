@@ -131,6 +131,95 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
     return res.status(200).send(new ServerResponse(true, result));
   }
 
+  @HandleExceptions()
+  public static async createDateRangeForProjects(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
+    // Accept projectIds as comma-separated list or repeated query param ?projectIds=id1,id2
+    let projectIds: string[] = [];
+    if (Array.isArray(req.query.projectIds)) {
+      projectIds = req.query.projectIds as string[];
+    } else if (typeof req.query.projectIds === 'string') {
+      projectIds = (req.query.projectIds as string).split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (!projectIds.length) {
+      return res.status(400).send(new ServerResponse(false, 'projectIds query parameter is required'));
+    }
+
+    const q = `SELECT MIN(min_date) AS start_date, MAX(max_date) AS end_date
+               FROM (SELECT MIN(start_date) AS min_date, MAX(start_date) AS max_date
+                     FROM tasks
+                     WHERE project_id = ANY($1::uuid[]) AND tasks.archived IS FALSE
+                     UNION
+                     SELECT MIN(end_date) AS min_date, MAX(end_date) AS max_date
+                     FROM tasks
+                     WHERE project_id = ANY($1::uuid[]) AND tasks.archived IS FALSE) AS date_union;`;
+
+    const resDb = await db.query(q, [projectIds]);
+    const dateRange = resDb.rows[0];
+
+    const today = new Date();
+
+    let startDate = moment(today).clone().startOf("month");
+    let endDate = moment(today).clone().endOf("month");
+
+    if (dateRange.start_date)
+      dateRange.start_date = momentTime.tz(dateRange.start_date, `${req.query.timeZone}`).format("YYYY-MM-DD");
+
+    if (dateRange.end_date)
+      dateRange.end_date = momentTime.tz(dateRange.end_date, `${req.query.timeZone}`).format("YYYY-MM-DD");
+
+    if (dateRange.start_date && dateRange.end_date) {
+      startDate = this.validateStartDate(moment(dateRange.start_date)) ? moment(dateRange.start_date).startOf("month") : moment(today).clone().startOf("month");
+      endDate = this.validateEndDate(moment(dateRange.end_date)) ? moment(today).clone().endOf("month") : moment(dateRange.end_date).endOf("month");
+    } else if (dateRange.start_date && !dateRange.end_date) {
+      startDate = this.validateStartDate(moment(dateRange.start_date)) ? moment(dateRange.start_date).startOf("month") : moment(today).clone().startOf("month");
+    } else if (!dateRange.start_date && dateRange.end_date) {
+      endDate = this.validateEndDate(moment(dateRange.end_date)) ? moment(today).clone().endOf("month") : moment(dateRange.end_date).endOf("month");
+    }
+
+    const xMonthsBeforeStart = startDate.clone().subtract(2, "months");
+    const xMonthsAfterEnd = endDate.clone().add(3, "months");
+
+    this.GLOBAL_START_DATE = moment(xMonthsBeforeStart).format("YYYY-MM-DD");
+    this.GLOBAL_END_DATE = moment(xMonthsAfterEnd).format("YYYY-MM-DD");
+
+    const dateData = [];
+    let days = -1;
+
+    const currentDate = xMonthsBeforeStart.clone();
+
+    while (currentDate.isBefore(xMonthsAfterEnd)) {
+      const monthData = {
+        month: currentDate.format("MMM YYYY"),
+        weeks: [] as number[],
+        days: [] as { day: number, name: string, isWeekend: boolean, isToday: boolean }[],
+      };
+      const daysInMonth = currentDate.daysInMonth();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dayOfMonth = currentDate.date();
+        const dayName = currentDate.format("ddd");
+        const isWeekend = [0, 6].includes(currentDate.day());
+        const isToday = moment(moment(today).format("YYYY-MM-DD")).isSame(moment(currentDate).format("YYYY-MM-DD"));
+        monthData.days.push({day: dayOfMonth, name: dayName, isWeekend, isToday});
+        currentDate.add(1, "day");
+        days++;
+      }
+      dateData.push(monthData);
+    }
+
+    const scrollBy = this.getScrollAmount(xMonthsBeforeStart);
+
+    const result = {
+      date_data: dateData,
+      width: days + 1,
+      scroll_by: scrollBy,
+      chart_start: moment(this.GLOBAL_START_DATE).format("YYYY-MM-DD"),
+      chart_end: moment(this.GLOBAL_END_DATE).format("YYYY-MM-DD")
+    };
+
+    return res.status(200).send(new ServerResponse(true, result));
+  }
+
   private static isCountsOnly(query: ParsedQs) {
     return query.count === "true";
   }
@@ -308,6 +397,82 @@ export default class RoadmapTasksControllerV2 extends RoadmapTasksControllerV2Ba
     }
 
     return res.status(200).send(new ServerResponse(true, updatedGroups));
+  }
+
+  @HandleExceptions()
+  public static async getListForProjects(req: IWorkLenzRequest, res: IWorkLenzResponse): Promise<IWorkLenzResponse> {
+    // Accept projectIds as comma-separated list or repeated query param
+    let projectIds: string[] = [];
+    if (Array.isArray(req.query.projectIds)) {
+      projectIds = req.query.projectIds as string[];
+    } else if (typeof req.query.projectIds === 'string') {
+      projectIds = (req.query.projectIds as string).split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (!projectIds.length) {
+      return res.status(400).send(new ServerResponse(false, 'projectIds query parameter is required'));
+    }
+
+    const isSubTasks = !!req.query.parent_task;
+    const groupBy = (req.query.group || GroupBy.STATUS) as string;
+
+    const aggregated: any[] = [];
+
+    for (const pid of projectIds) {
+      const q = RoadmapTasksControllerV2.getQuery(req.user?.id as string, req.query);
+      const params = isSubTasks ? [pid, req.query.parent_task] : [pid];
+
+      const result = await db.query(q, params);
+      const tasks = [...result.rows];
+
+      const groups = await this.getGroups(groupBy, pid);
+
+      const map = groups.reduce((g: { [x: string]: IRMTaskGroup }, group) => {
+        if (group.id)
+          g[group.id] = new TaskListGroup(group);
+        return g;
+      }, {} as { [x: string]: IRMTaskGroup });
+
+      this.updateMapByGroup(tasks, groupBy, map, req.query.expandedGroups as string, req.query.timezone as string);
+
+      const updatedGroups = Object.keys(map).map(key => {
+        const group = map[key];
+
+        if (groupBy === GroupBy.PHASE)
+          group.color_code = getColor(group.name) + TASK_PRIORITY_COLOR_ALPHA;
+
+        return {
+          id: key,
+          ...group
+        };
+      });
+
+      // Sort groups so UNMAPPED (unassigned tasks) comes first
+      updatedGroups.sort((a, b) => {
+        if (a.id === UNMAPPED) return -1;
+        if (b.id === UNMAPPED) return 1;
+        return 0;
+      });
+
+      if (req.query.expandedGroups) {
+        const expandedGroup = updatedGroups.find(g => g.id === req.query.expandedGroups);
+        if (expandedGroup) expandedGroup.is_expanded = true;
+      } else if (updatedGroups[0]) {
+        updatedGroups[0].is_expanded = true;
+      }
+
+      // Flatten tasks for this project
+      const flattenedTasks = updatedGroups.flatMap((g: any) => g.tasks || []);
+
+      // Fetch project name
+      const projRes = await db.query(`SELECT name FROM projects WHERE id = $1`, [pid]);
+      const projectName = projRes.rows[0]?.name || pid;
+      const color_code = updatedGroups[0]?.color_code || '#1890ff';
+
+      aggregated.push({ projectId: pid, projectName, taskGroups: updatedGroups, tasks: flattenedTasks, color_code });
+    }
+
+    return res.status(200).send(new ServerResponse(true, aggregated));
   }
 
   public static updateMapByGroup(tasks: any[], groupBy: string, map: {

@@ -16,6 +16,7 @@ interface RoadmapState {
   groupBy: 'status' | 'priority' | 'phase' | 'labels';
   showArchived: boolean;
   searchTerm: string;
+  selectedProjectIds?: string[];
 
   // Date range from backend
   chartStart: string | null;
@@ -31,6 +32,7 @@ const initialState: RoadmapState = {
   groupBy: 'status',
   showArchived: false,
   searchTerm: '',
+  selectedProjectIds: [],
   chartStart: null,
   chartEnd: null
 };
@@ -72,6 +74,46 @@ export const fetchRoadmapData = createAsyncThunk(
 );
 
 /**
+ * Fetch roadmap data for multiple projects (aggregated)
+ */
+export const fetchRoadmapsForProjects = createAsyncThunk(
+  'roadmap/fetchForProjects',
+  async (params: {
+    projects: { id: string; name?: string }[];
+    timeZone: string;
+    groupBy?: 'status' | 'priority' | 'phase' | 'labels';
+    archived?: boolean;
+    search?: string;
+  }) => {
+    const projectIds = params.projects.map(p => p.id);
+
+    // Call aggregated backend endpoints
+    const [chartDates, aggregated] = await Promise.all([
+      roadmapApiService.getChartDatesForProjects({ projectIds, timeZone: params.timeZone }),
+      roadmapApiService.getTaskGroupsForProjects({ projectIds, timeZone: params.timeZone, group: params.groupBy || 'status', archived: params.archived || false, search: params.search })
+    ]);
+
+    // aggregated is expected to be an array of { projectId, projectName, taskGroups, tasks, color_code }
+    const aggregatedTaskGroups: TaskGroup[] = (aggregated || []).map((r: any) => ({
+      id: r.projectId,
+      name: r.projectName || r.projectId,
+      color_code: r.color_code,
+      is_expanded: true,
+      tasks: r.tasks || []
+    }));
+
+    const overallStart = chartDates?.chart_start || null;
+    const overallEnd = chartDates?.chart_end || null;
+
+    return {
+      taskGroups: aggregatedTaskGroups,
+      chartStart: overallStart,
+      chartEnd: overallEnd
+    };
+  }
+);
+
+/**
  * Fetch subtasks for lazy loading
  */
 export const fetchSubtasks = createAsyncThunk(
@@ -107,6 +149,10 @@ const roadmapSlice = createSlice({
 
     setSearchTerm(state, action: PayloadAction<string>) {
       state.searchTerm = action.payload;
+    },
+
+    setSelectedProjectIds(state, action: PayloadAction<string[]>) {
+      state.selectedProjectIds = action.payload;
     },
 
     /**
@@ -185,6 +231,23 @@ const roadmapSlice = createSlice({
       state.error = action.error.message || 'Failed to fetch roadmap data';
     });
 
+    // Fetch roadmap data for multiple projects
+    builder.addCase(fetchRoadmapsForProjects.pending, (state) => {
+      state.loading = true;
+      state.error = null;
+    });
+    builder.addCase(fetchRoadmapsForProjects.fulfilled, (state, action) => {
+      state.loading = false;
+      state.taskGroups = action.payload.taskGroups;
+      state.tasks = transformTaskGroupsToSvar(action.payload.taskGroups);
+      state.chartStart = action.payload.chartStart;
+      state.chartEnd = action.payload.chartEnd;
+    });
+    builder.addCase(fetchRoadmapsForProjects.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.error.message || 'Failed to fetch roadmap data for projects';
+    });
+
     // Fetch subtasks - handled by SVAR lazy loading, no Redux state update needed
     builder.addCase(fetchSubtasks.fulfilled, (state, action) => {
       // Subtasks are handled directly by SVAR via provide-data API
@@ -198,6 +261,7 @@ export const {
   setGroupBy,
   setShowArchived,
   setSearchTerm,
+  setSelectedProjectIds,
   updateTaskDate,
   updateTaskProgress,
   toggleTaskExpansion,

@@ -12,6 +12,7 @@ import {
 import { transformSvarTaskToBackend, transformBackendTaskToSvar } from '@/features/roadmap/roadmap-transformers';
 import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
 import apiClient from '@/api/api-client';
+import { taskDependenciesApiService } from '@/api/tasks/task-dependencies.api.service';
 import { TaskContextMenu } from './TaskContextMenu';
 import './SvarGanttChart.css';
 
@@ -42,7 +43,28 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
 
   // Deep clone tasks to avoid SVAR trying to modify frozen Redux objects
   const tasks = React.useMemo(() => {
-    return JSON.parse(JSON.stringify(rawTasks));
+    // Create mutable shallow-cloned tasks and convert date strings to Date objects expected by SVAR.
+    return (rawTasks || []).map((t: any) => {
+      const task = { ...t } as any;
+      // convert string dates to Date objects; remove nulls to avoid NaN in SVAR
+      if (task.start && typeof task.start === 'string') {
+        const d = new Date(task.start);
+        task.start = isNaN(d.getTime()) ? undefined : d;
+      } else if (task.start instanceof Date) {
+        // already Date
+      } else {
+        delete task.start;
+      }
+      if (task.end && typeof task.end === 'string') {
+        const d = new Date(task.end);
+        task.end = isNaN(d.getTime()) ? undefined : d;
+      } else if (task.end instanceof Date) {
+        // already Date
+      } else {
+        delete task.end;
+      }
+      return task;
+    });
   }, [rawTasks]);
 
   /**
@@ -106,15 +128,18 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
           progress
         }));
 
-        // Refresh progress on backend
-        await apiClient.post(`/tasks/refresh-progress/${propProjectId}`);
+        // Refresh progress on backend for the task's project
+        const taskObj = tasks.find((t: any) => String(t.id) === String(id));
+        const projectForTask = taskObj?.project_id || propProjectId;
+        if (projectForTask) {
+          await apiClient.post(`/tasks/refresh-progress/${projectForTask}`);
+        }
       }
     } catch (error) {
       console.error('Failed to update task:', error);
       // TODO: Show error notification to user
-      // TODO: Revert optimistic update
     }
-  }, [dispatch, propProjectId]);
+  }, [dispatch, propProjectId, tasks]);
 
   /**
    * Handle lazy loading of subtasks
@@ -123,29 +148,65 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     const { id } = event;
 
     try {
+      // Ignore requests originating from group header rows (ids like 'group-...')
+      if (String(id).startsWith('group-')) {
+        return;
+      }
+
+      const taskObj = tasks.find((t: any) => String(t.id) === String(id));
+      if (!taskObj) {
+        // No matching task to load subtasks for
+        return;
+      }
+
+      const projectForTask = taskObj?.project_id || propProjectId;
+
       // Fetch subtasks from backend
       const result = await dispatch(fetchSubtasks({
-        projectId: propProjectId,
+        projectId: projectForTask,
         parentTaskId: String(id),
         timeZone
       })).unwrap();
 
       // Transform subtasks to SVAR format before providing to SVAR
-      const transformedSubtasks = result.subtasks.map((subtask: any) =>
+      const transformedSubtasks = (result.subtasks || []).map((subtask: any) =>
         transformBackendTaskToSvar(subtask, String(id), result.subtasks[0]?.color_code || '#1890ff')
       );
 
-      // Provide data back to SVAR
+      // Fetch dependency records for each subtask and convert to SVAR links
+      const links: any[] = [];
+      await Promise.all(transformedSubtasks.map(async (t) => {
+        try {
+          const depsResp: any = await taskDependenciesApiService.getTaskDependencies(String(t.id));
+          const depsArray = depsResp?.body ?? depsResp?.data ?? depsResp;
+          if (Array.isArray(depsArray)) {
+            depsArray.forEach((d: any, idx: number) => {
+              const source = d.related_task_id || d.relatedTaskId || d.related_task;
+              const target = t.id;
+              if (source) {
+                links.push({ id: `${target}-${source}-${idx}`, source, target, type: 'e2e' });
+              }
+            });
+          }
+        } catch (err) {
+          // ignore per-task dependency fetch failures
+        }
+      }));
+
+      // Provide data back to SVAR (SVAR expects data.tasks and data.links)
       if (api) {
         api.exec('provide-data', {
           id,
-          data: transformedSubtasks
+          data: {
+            tasks: transformedSubtasks,
+            links
+          }
         });
       }
     } catch (error) {
       console.error('Failed to load subtasks:', error);
     }
-  }, [dispatch, propProjectId, timeZone, api]);
+  }, [dispatch, propProjectId, timeZone, api, tasks]);
 
   /**
    * Handle task selection (double-click to open drawer)
@@ -198,6 +259,52 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
       };
     }
   }, [api, handleTaskUpdate, handleRequestData, handleTaskSelect]);
+
+  // When the SVAR API is ready, fetch dependencies for currently-loaded tasks and provide links so relationships render
+  useEffect(() => {
+    if (!api) return;
+    let mounted = true;
+
+    (async () => {
+      try {
+        const links: any[] = [];
+
+        // Fetch dependencies for each top-level task (ignore group headers and failures per-task)
+        const tasksToQuery = (tasks || []).filter((t: any) => !String(t.id).startsWith('group-'));
+
+        await Promise.all(tasksToQuery.map(async (t: any) => {
+          try {
+            const depsResp: any = await taskDependenciesApiService.getTaskDependencies(String(t.id));
+            const depsArray = depsResp?.body ?? depsResp?.data ?? depsResp;
+            if (Array.isArray(depsArray)) {
+              depsArray.forEach((d: any, idx: number) => {
+                const source = d.related_task_id || d.relatedTaskId || d.related_task;
+                const target = t.id;
+                if (source) {
+                  links.push({ id: `${target}-${source}-${idx}`, source, target, type: 'e2e' });
+                }
+              });
+            }
+          } catch (err) {
+            // ignore per-task dependency fetch failures
+          }
+        }));
+
+        if (!mounted) return;
+        if (links.length > 0) {
+          try {
+            api.exec('provide-data', { data: { links } });
+          } catch (err) {
+            console.error('Failed to provide dependency links to SVAR API', err);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch initial task dependencies', err);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [api, tasks]);
 
   /**
    * Render with appropriate theme

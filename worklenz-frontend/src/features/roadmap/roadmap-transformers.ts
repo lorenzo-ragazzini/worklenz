@@ -6,8 +6,8 @@ import { BackendTask, TaskGroup } from '@/api/roadmap/roadmap.api.service';
 export interface SvarTask {
   id: string | number;
   text: string;
-  start?: string; // YYYY-MM-DD format
-  end?: string; // YYYY-MM-DD format
+  start?: Date | string | null; // YYYY-MM-DD string or Date object
+  end?: Date | string | null; // YYYY-MM-DD string or Date object
   duration?: number;
   progress?: number;
   type?: 'task' | 'summary' | 'milestone';
@@ -72,17 +72,16 @@ export function transformBackendTaskToSvar(
 
   // Determine task type
   let type: 'task' | 'summary' | 'milestone' = 'task';
-  if (subCount > 0) {
-    type = 'summary';
-  } else if (duration === 1) {
+  // Always treat tasks as regular 'task' items to avoid SVAR summary-date errors
+  if (duration === 1) {
     type = 'milestone';
   }
 
   return {
     id: task.id,
     text: task.name,
-    start: startDate ? startDate.toISOString().split('T')[0] : null, // Use null for undated tasks to show in grid
-    end: endDate ? endDate.toISOString().split('T')[0] : null, // Use null for undated tasks to show in grid
+    start: startDate ? startDate : undefined, // Date object or undefined for undated tasks
+    end: endDate ? endDate : undefined, // Date object or undefined for undated tasks
     duration,
     progress,
     type,
@@ -92,6 +91,7 @@ export function transformBackendTaskToSvar(
     details: `Priority: ${task.priority_value}, Status: ${task.status}`,
 
     // Custom Worklenz fields
+    project_id: task.project_id,
     status_id: task.status,
     priority: task.priority,
     priority_value: task.priority_value,

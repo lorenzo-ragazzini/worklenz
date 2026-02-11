@@ -82,6 +82,36 @@ export class RoadmapApiService {
   }
 
   /**
+   * Fetch date range and calendar data for multiple projects (aggregated)
+   */
+  async getChartDatesForProjects(params: { projectIds: string[]; timeZone: string }): Promise<ChartDateRange> {
+    const response = await this.client.get(`${API_BASE_URL}/chart-dates`, { params: { projectIds: params.projectIds.join(','), timeZone: params.timeZone } });
+    const serverResp: any = (response as any)?.body ?? (response as any)?.data ?? response;
+    const payload: any = serverResp?.body ?? serverResp;
+    return payload as ChartDateRange;
+  }
+
+  /**
+   * Fetch tasks grouped by status, priority, phase, or labels for multiple projects (aggregated)
+   */
+  async getTaskGroupsForProjects(params: { projectIds: string[]; timeZone: string; group?: 'status' | 'priority' | 'phase' | 'labels'; archived?: boolean; search?: string; }): Promise<any[]> {
+    const { projectIds, timeZone, group = 'status', archived = false, search } = params;
+
+    const response = await this.client.get(`${API_BASE_URL}/task-groups`, {
+      params: {
+        projectIds: projectIds.join(','),
+        group,
+        archived: archived ? 'true' : 'false',
+        search,
+        timezone: timeZone
+      }
+    });
+    const serverResp: any = (response as any)?.body ?? (response as any)?.data ?? response;
+    const payload: any = serverResp?.body ?? serverResp;
+    return payload as any[];
+  }
+
+  /**
    * Fetch tasks grouped by status, priority, phase, or labels
    */
   async getTaskGroups(params: RoadmapApiParams): Promise<TaskGroup[]> {

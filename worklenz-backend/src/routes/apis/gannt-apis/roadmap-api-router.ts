@@ -12,6 +12,9 @@ function getList(req: Request, res: Response) {
   return RoadmapTasksControllerV2.getList(req, res);
 }
 
+roadmapApiRouter.get("/chart-dates", safeControllerFunction(RoadmapTasksControllerV2.createDateRangeForProjects));
+roadmapApiRouter.get("/task-groups", safeControllerFunction(RoadmapTasksControllerV2.getListForProjects));
+
 roadmapApiRouter.get("/chart-dates/:id", idParamValidator, safeControllerFunction(RoadmapTasksControllerV2.createDateRange));
 roadmapApiRouter.get("/task-groups/:id", idParamValidator, safeControllerFunction(getList));
 
