@@ -29,6 +29,7 @@ interface TaskListState {
   createTaskTemplateDrawerOpen: boolean;
   projectView: 'list' | 'kanban';
   refreshTimestamp: string | null;
+  selectedProjects: string[];
 }
 
 const initialState: TaskListState = {
@@ -51,6 +52,7 @@ const initialState: TaskListState = {
   createTaskTemplateDrawerOpen: false,
   projectView: 'list',
   refreshTimestamp: null,
+  selectedProjects: [],
 };
 
 export const getProject = createAsyncThunk(
@@ -176,6 +178,18 @@ const projectSlice = createSlice({
     setProjectView: (state, action: PayloadAction<'list' | 'kanban'>) => {
       state.projectView = action.payload;
     },
+    setSelectedProjects: (state, action: PayloadAction<string[]>) => {
+      state.selectedProjects = action.payload;
+    },
+    toggleProjectSelection: (state, action: PayloadAction<string>) => {
+      const projectId = action.payload;
+      const index = state.selectedProjects.indexOf(projectId);
+      if (index > -1) {
+        state.selectedProjects.splice(index, 1);
+      } else {
+        state.selectedProjects.push(projectId);
+      }
+    },
   },
   extraReducers: builder => {
     builder
@@ -215,6 +229,8 @@ export const {
   setProjectView,
   updatePhaseLabel,
   setRefreshTimestamp,
+  setSelectedProjects,
+  toggleProjectSelection,
 } = projectSlice.actions;
 
 export default projectSlice.reducer;

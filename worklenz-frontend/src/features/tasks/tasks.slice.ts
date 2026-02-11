@@ -23,6 +23,7 @@ import { produce } from 'immer';
 import { tasksCustomColumnsService } from '@/api/tasks/tasks-custom-columns.service';
 import { SocketEvents } from '@/shared/socket-events';
 import { ITaskRecurringScheduleData } from '@/types/tasks/task-recurring-schedule';
+import { RootState } from '@/app/store';
 
 export enum IGroupBy {
   STATUS = 'status',
@@ -145,8 +146,8 @@ export const fetchTaskGroups = createAsyncThunk(
   'tasks/fetchTaskGroups',
   async (projectId: string, { rejectWithValue, getState }) => {
     try {
-      const state = getState() as { taskReducer: ITaskState };
-      const { taskReducer } = state;
+      const state = getState() as RootState;
+      const { taskReducer, projectReducer } = state;
 
       const selectedMembers = taskReducer.taskAssignees
         .filter(member => member.selected)
@@ -158,6 +159,10 @@ export const fetchTaskGroups = createAsyncThunk(
         .map(label => label.id)
         .join(' ');
 
+      // Get selected projects from projectReducer
+      const selectedProjects = projectReducer.selectedProjects || [];
+      const projectsFilter = selectedProjects.length > 0 ? selectedProjects.join(',') : '';
+
       const config: ITaskListConfigV2 = {
         id: projectId,
         archived: taskReducer.archived,
@@ -167,7 +172,7 @@ export const fetchTaskGroups = createAsyncThunk(
         search: taskReducer.search || '',
         statuses: '',
         members: selectedMembers,
-        projects: '',
+        projects: projectsFilter,
         isSubtasksInclude: false,
         labels: selectedLabels,
         priorities: taskReducer.priorities.join(' '),

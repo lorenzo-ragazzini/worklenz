@@ -91,5 +91,7 @@
   "sortByField": "Sort by {{field}}",
   "ascendingOrder": "Ascending",
   "descendingOrder": "Descending",
-  "currentSort": "Current sort: {{field}} {{order}}"
+  "currentSort": "Current sort: {{field}} {{order}}",
+  "projectsFilterText": "Projects",
+  "clearAllText": "Clear All"
 }

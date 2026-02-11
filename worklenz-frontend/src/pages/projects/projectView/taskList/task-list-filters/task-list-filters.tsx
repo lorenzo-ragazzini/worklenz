@@ -24,6 +24,7 @@ import MembersFilterDropdown from '@components/project-task-filters/filter-dropd
 import GroupByFilterDropdown from '@components/project-task-filters/filter-dropdowns/group-by-filter-dropdown';
 import ShowFieldsFilterDropdown from '@components/project-task-filters/filter-dropdowns/show-fields-filter-dropdown';
 import PriorityFilterDropdown from '@components/project-task-filters/filter-dropdowns/priority-filter-dropdown';
+import ProjectsFilterDropdown from '@components/project-task-filters/filter-dropdowns/projects-filter-dropdown';
 
 interface TaskListFiltersProps {
   position: 'board' | 'list';
@@ -92,6 +93,7 @@ const TaskListFilters: React.FC<TaskListFiltersProps> = ({ position }) => {
         <PriorityFilterDropdown priorities={priorities} />
         <LabelsFilterDropdown />
         <MembersFilterDropdown />
+        <ProjectsFilterDropdown />
         <GroupByFilterDropdown />
       </Flex>
 
