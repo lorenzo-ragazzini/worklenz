@@ -19,6 +19,7 @@ import { ITeamMemberViewModel } from '../taskAttributes/taskMemberSlice';
 import { InlineMember } from '@/types/teamMembers/inlineMember.types';
 import { ITaskListStatusChangeResponse } from '@/types/tasks/task-list-status.types';
 import { ITaskListPriorityChangeResponse } from '@/types/tasks/task-list-priority.types';
+import { RootState } from '@/app/store';
 
 export enum IGroupBy {
   STATUS = 'status',
@@ -167,7 +168,7 @@ export const fetchBoardTaskGroups = createAsyncThunk(
   'board/fetchBoardTaskGroups',
   async (projectId: string, { rejectWithValue, getState }) => {
     try {
-      const state = getState() as { boardReducer: BoardState; projectReducer: any };
+      const state = getState() as RootState;
       const { boardReducer, projectReducer } = state;
 
       const selectedMembers = boardReducer.taskAssignees
@@ -218,7 +219,7 @@ export const fetchBoardSubTasks = createAsyncThunk(
     { rejectWithValue, getState }
   ) => {
     try {
-      const state = getState() as { boardReducer: BoardState; projectReducer: any };
+      const state = getState() as RootState;
       const { boardReducer, projectReducer } = state;
 
       // Check if the task is already expanded
@@ -304,7 +305,7 @@ const findParentTaskInAllGroups = (
 const getTaskListConfig = (
   state: BoardState,
   projectId: string,
-  projectReducer: any,
+  projectReducer: RootState['projectReducer'],
   parentTaskId?: string
 ): ITaskListConfigV2 => {
   const selectedMembers = state.taskAssignees

@@ -23,6 +23,7 @@ import { produce } from 'immer';
 import { tasksCustomColumnsService } from '@/api/tasks/tasks-custom-columns.service';
 import { SocketEvents } from '@/shared/socket-events';
 import { ITaskRecurringScheduleData } from '@/types/tasks/task-recurring-schedule';
+import { RootState } from '@/app/store';
 
 export enum IGroupBy {
   STATUS = 'status',
@@ -145,7 +146,7 @@ export const fetchTaskGroups = createAsyncThunk(
   'tasks/fetchTaskGroups',
   async (projectId: string, { rejectWithValue, getState }) => {
     try {
-      const state = getState() as { taskReducer: ITaskState; projectReducer: any };
+      const state = getState() as RootState;
       const { taskReducer, projectReducer } = state;
 
       const selectedMembers = taskReducer.taskAssignees

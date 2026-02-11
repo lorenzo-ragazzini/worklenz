@@ -48,14 +48,14 @@ const ProjectsFilterDropdown = () => {
       setLoading(true);
       try {
         const response = await projectsApiService.getProjects(
-          0,
-          100,
-          null,
-          null,
-          null,
-          null,
-          null,
-          null
+          0,      // index
+          100,    // size
+          null,   // field
+          null,   // order
+          null,   // search
+          null,   // filter
+          null,   // statuses
+          null    // categories
         );
         const projects = (response.body?.data || []).map(project => ({
           ...project,
@@ -70,7 +70,7 @@ const ProjectsFilterDropdown = () => {
     };
 
     fetchProjects();
-  }, []);
+  }, [selectedProjects]);
 
   // Update selection state when selectedProjects changes
   useEffect(() => {
