@@ -58,17 +58,21 @@ export function transformBackendTaskToSvar(
     duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   }
 
+  // Normalize subtask count and presence
+  const subCount = Number((task as any).sub_tasks_count || 0);
+  const hasSubtasks = Array.isArray((task as any).subtasks) && (task as any).subtasks.length > 0;
+
   // Calculate progress percentage
   let progress = 0;
-  if (task.sub_tasks_count > 0) {
-    progress = Math.round((task.completed_sub_tasks / task.sub_tasks_count) * 100);
-  } else if (task.status_category.is_done) {
+  if (subCount > 0) {
+    progress = subCount > 0 ? Math.round(((task.completed_sub_tasks || 0) / subCount) * 100) : 0;
+  } else if (task.status_category?.is_done) {
     progress = 100;
   }
 
   // Determine task type
   let type: 'task' | 'summary' | 'milestone' = 'task';
-  if (task.sub_tasks_count > 0) {
+  if (subCount > 0) {
     type = 'summary';
   } else if (duration === 1) {
     type = 'milestone';
@@ -83,8 +87,8 @@ export function transformBackendTaskToSvar(
     progress,
     type,
     parent: task.parent_task_id || groupId || 0,
-    open: true, // Expand by default
-    lazy: task.sub_tasks_count > 0, // Enable lazy loading for tasks with subtasks
+    open: hasSubtasks, // Only open when actual subtasks are present to avoid SVAR iterating null
+    lazy: subCount > 0 && !hasSubtasks, // Enable lazy loading when there are subtasks but they are not inlined
     details: `Priority: ${task.priority_value}, Status: ${task.status}`,
 
     // Custom Worklenz fields
@@ -94,7 +98,7 @@ export function transformBackendTaskToSvar(
     phase_id: task.phase_id,
     status_category: task.status_category,
     color_code: colorCode,
-    sub_tasks_count: task.sub_tasks_count,
+    sub_tasks_count: subCount,
     completed_sub_tasks: task.completed_sub_tasks
   };
 }
@@ -119,9 +123,11 @@ export function transformTaskGroupsToSvar(taskGroups: TaskGroup[]): SvarTask[] {
     const groupHeaderTask: SvarTask = {
       id: `group-${group.id}`,
       text: group.name,
-      type: 'summary',
+      // Only mark as a summary if the group actually contains tasks; empty groups become regular tasks
+      type: group.tasks && group.tasks.length > 0 ? 'summary' : 'task',
       parent: 0,
-      open: group.is_expanded,
+      // Only open groups with actual child data to avoid SVAR recursing into null
+      open: !!(group.is_expanded && group.tasks && group.tasks.length > 0),
       color_code: group.color_code,
       // No dates for group headers
     };

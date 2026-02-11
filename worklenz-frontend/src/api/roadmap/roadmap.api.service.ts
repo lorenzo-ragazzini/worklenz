@@ -74,11 +74,11 @@ export class RoadmapApiService {
    * Fetch date range and calendar data for Gantt chart timeline
    */
   async getChartDates(params: { projectId: string; timeZone: string }): Promise<ChartDateRange> {
-    const response = await this.client.get<ChartDateRange>(
-      `${API_BASE_URL}/chart-dates/${params.projectId}`,
-      { params: { timeZone: params.timeZone } }
-    );
-    return response.body;
+    const response = await this.client.get(`${API_BASE_URL}/chart-dates/${params.projectId}`, { params: { timeZone: params.timeZone } });
+    // Normalize response shape: support raw AxiosResponse, ServerResponse wrapper, or already-unwrapped payload
+    const serverResp: any = (response as any)?.body ?? (response as any)?.data ?? response;
+    const payload: any = serverResp?.body ?? serverResp;
+    return payload as ChartDateRange;
   }
 
   /**
@@ -87,18 +87,17 @@ export class RoadmapApiService {
   async getTaskGroups(params: RoadmapApiParams): Promise<TaskGroup[]> {
     const { projectId, timeZone, group = 'status', archived = false, search } = params;
 
-    const response = await this.client.get<TaskGroup[]>(
-      `${API_BASE_URL}/task-groups/${projectId}`,
-      {
-        params: {
-          group,
-          archived: archived ? 'true' : 'false',
-          search,
-          timezone: timeZone
-        }
+    const response = await this.client.get(`${API_BASE_URL}/task-groups/${projectId}`, {
+      params: {
+        group,
+        archived: archived ? 'true' : 'false',
+        search,
+        timezone: timeZone
       }
-    );
-    return response.body;
+    });
+    const serverResp: any = (response as any)?.body ?? (response as any)?.data ?? response;
+    const payload: any = serverResp?.body ?? serverResp;
+    return payload as TaskGroup[];
   }
 
   /**
@@ -109,16 +108,15 @@ export class RoadmapApiService {
     parentTaskId: string;
     timeZone: string;
   }): Promise<BackendTask[]> {
-    const response = await this.client.get<BackendTask[]>(
-      `${API_BASE_URL}/task-groups/${params.projectId}`,
-      {
-        params: {
-          parent_task: params.parentTaskId,
-          timezone: params.timeZone
-        }
+    const response = await this.client.get(`${API_BASE_URL}/task-groups/${params.projectId}`, {
+      params: {
+        parent_task: params.parentTaskId,
+        timezone: params.timeZone
       }
-    );
-    return response.body;
+    });
+    const serverResp: any = (response as any)?.body ?? (response as any)?.data ?? response;
+    const payload: any = serverResp?.body ?? serverResp;
+    return payload as BackendTask[];
   }
 }
 
