@@ -43,26 +43,36 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
 
   // Deep clone tasks to avoid SVAR trying to modify frozen Redux objects
   const tasks = React.useMemo(() => {
-    // Create mutable shallow-cloned tasks and convert date strings to Date objects expected by SVAR.
+    // Create mutable shallow-cloned tasks and convert date strings/numbers to Date objects expected by SVAR.
     return (rawTasks || []).map((t: any) => {
       const task = { ...t } as any;
-      // convert string dates to Date objects; remove nulls to avoid NaN in SVAR
-      if (task.start && typeof task.start === 'string') {
-        const d = new Date(task.start);
-        task.start = isNaN(d.getTime()) ? undefined : d;
-      } else if (task.start instanceof Date) {
-        // already Date
+      // convert string or numeric dates to Date objects; remove null/invalids to avoid NaN in SVAR
+      if (task.start !== undefined && task.start !== null) {
+        if (typeof task.start === 'string' || typeof task.start === 'number') {
+          const d = new Date(task.start);
+          task.start = isNaN(d.getTime()) ? undefined : d;
+        } else if (task.start instanceof Date) {
+          // already Date
+        } else {
+          delete task.start;
+        }
       } else {
         delete task.start;
       }
-      if (task.end && typeof task.end === 'string') {
-        const d = new Date(task.end);
-        task.end = isNaN(d.getTime()) ? undefined : d;
-      } else if (task.end instanceof Date) {
-        // already Date
+
+      if (task.end !== undefined && task.end !== null) {
+        if (typeof task.end === 'string' || typeof task.end === 'number') {
+          const d = new Date(task.end);
+          task.end = isNaN(d.getTime()) ? undefined : d;
+        } else if (task.end instanceof Date) {
+          // already Date
+        } else {
+          delete task.end;
+        }
       } else {
         delete task.end;
       }
+
       return task;
     });
   }, [rawTasks]);
@@ -102,42 +112,97 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
    * Handle task update events from SVAR
    */
   const handleTaskUpdate = useCallback(async (event: any) => {
-    const { id, start, end, progress } = event;
+    console.log('[SvarGantt] handleTaskUpdate event:', event);
+    const id = event?.id;
+
+    if (!id) {
+      console.warn('[SvarGantt] update event missing id', event);
+      return;
+    }
+
+    // Ignore group headers
+    if (String(id).startsWith('group-')) {
+      console.log('[SvarGantt] ignoring group header update for', id);
+      return;
+    }
+
+    // Derive new dates/progress from possible event shapes
+    let newStart: Date | null | undefined = undefined;
+    let newEnd: Date | null | undefined = undefined;
+    let newProgress: number | undefined = undefined;
+
+    // Shape 1: event has direct start/end/progress
+    if (event.start !== undefined || event.end !== undefined || event.progress !== undefined) {
+      newStart = event.start !== undefined ? (event.start ? new Date(event.start) : null) : undefined;
+      newEnd = event.end !== undefined ? (event.end ? new Date(event.end) : null) : undefined;
+      newProgress = event.progress;
+
+    // Shape 2: event.task contains updated values
+    } else if (event.task) {
+      const t = event.task;
+      if (t.start !== undefined || t.end !== undefined || t.progress !== undefined) {
+        newStart = t.start !== undefined ? (t.start ? new Date(t.start) : null) : undefined;
+        newEnd = t.end !== undefined ? (t.end ? new Date(t.end) : null) : undefined;
+        newProgress = t.progress;
+      } else if (event.diff !== undefined) {
+        // Some SVAR events provide a numeric diff (days moved). Compute from current task.
+        const original = tasks.find((x: any) => String(x.id) === String(id));
+        const diff = Number(event.diff) || 0;
+        if (original) {
+          if (original.start) newStart = new Date(original.start.getTime() + diff * 24 * 60 * 60 * 1000);
+          if (original.end) newEnd = new Date(original.end.getTime() + diff * 24 * 60 * 60 * 1000);
+        } else {
+          console.warn('[SvarGantt] cannot compute dates from diff - original task not found', id);
+        }
+      }
+
+    // Shape 3: event only has diff at top level
+    } else if (event.diff !== undefined) {
+      const original = tasks.find((x: any) => String(x.id) === String(id));
+      const diff = Number(event.diff) || 0;
+      if (original) {
+        if (original.start) newStart = new Date(original.start.getTime() + diff * 24 * 60 * 60 * 1000);
+        if (original.end) newEnd = new Date(original.end.getTime() + diff * 24 * 60 * 60 * 1000);
+      } else {
+        console.warn('[SvarGantt] cannot compute dates from diff - original task not found', id);
+      }
+    }
 
     try {
       // Optimistic update in Redux
-      if (start !== undefined || end !== undefined) {
+      if (newStart !== undefined || newEnd !== undefined) {
         dispatch(updateTaskDate({
           taskId: String(id),
-          start: start ? new Date(start) : null,
-          end: end ? new Date(end) : null
+          start: newStart ?? null,
+          end: newEnd ?? null
         }));
 
         // Persist to backend only if dates are provided
-        if (start || end) {
-          await apiClient.put(`/tasks/duration/${id}`, {
-            start: start ? new Date(start).toISOString() : null,
-            end: end ? new Date(end).toISOString() : null
+        if (newStart || newEnd) {
+          console.log('[SvarGantt] Persisting dates to backend for', id, { start: newStart, end: newEnd });
+          await apiClient.put(`/api/v1/tasks/duration/${id}`, {
+            start: newStart ? newStart.toISOString() : null,
+            end: newEnd ? newEnd.toISOString() : null
           });
         }
       }
 
-      if (progress !== undefined) {
+      if (newProgress !== undefined) {
+        console.log('[SvarGantt] Updating progress to', newProgress, 'for', id);
         dispatch(updateTaskProgress({
           taskId: String(id),
-          progress
+          progress: newProgress
         }));
 
         // Refresh progress on backend for the task's project
         const taskObj = tasks.find((t: any) => String(t.id) === String(id));
         const projectForTask = taskObj?.project_id || propProjectId;
         if (projectForTask) {
-          await apiClient.post(`/tasks/refresh-progress/${projectForTask}`);
+          await apiClient.post(`/api/v1/tasks/refresh-progress/${projectForTask}`);
         }
       }
     } catch (error) {
       console.error('Failed to update task:', error);
-      // TODO: Show error notification to user
     }
   }, [dispatch, propProjectId, tasks]);
 
@@ -145,6 +210,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
    * Handle lazy loading of subtasks
    */
   const handleRequestData = useCallback(async (event: any) => {
+    console.log('[SvarGantt] handleRequestData event:', event);
     const { id } = event;
 
     try {
@@ -155,6 +221,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
 
       const taskObj = tasks.find((t: any) => String(t.id) === String(id));
       if (!taskObj) {
+        console.warn('[SvarGantt] No matching task for request-data id', id);
         // No matching task to load subtasks for
         return;
       }
@@ -194,7 +261,8 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
       }));
 
       // Provide data back to SVAR (SVAR expects data.tasks and data.links)
-      if (api) {
+      if (api && typeof api.exec === 'function') {
+        console.log('[SvarGantt] Providing data for', id, { tasks: transformedSubtasks.length, links: links.length });
         api.exec('provide-data', {
           id,
           data: {
@@ -202,6 +270,8 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
             links
           }
         });
+      } else {
+        console.warn('[SvarGantt] API not ready or has no exec method to provide data', { api });
       }
     } catch (error) {
       console.error('Failed to load subtasks:', error);
@@ -212,6 +282,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
    * Handle task selection (double-click to open drawer)
    */
   const handleTaskSelect = useCallback((event: any) => {
+    console.log('[SvarGantt] handleTaskSelect event:', event);
     if (event.action === 'dblclick') {
       // Open task drawer with the selected task
       dispatch(setShowTaskDrawer({
@@ -221,7 +292,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     } else if (event.action === 'contextmenu') {
       // Handle right-click context menu
       event.event.preventDefault();
-      const task = tasks.find(t => t.id === event.id);
+      const task = tasks.find(t => String(t.id) === String(event.id));
       if (task) {
         setContextMenu({
           visible: true,
@@ -244,18 +315,53 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
    */
   useEffect(() => {
     if (api) {
-      // Task update events
-      api.on('update-task', handleTaskUpdate);
+      console.log('[SvarGantt] API ready', { hasOn: typeof api.on, hasExec: typeof api.exec, api });
+      const attach = (name: string, handler: any) => {
+        try {
+          if (typeof api.on === 'function') {
+            api.on(name, handler);
+            console.log('[SvarGantt] attached listener', name);
+          } else if (typeof api.addEventListener === 'function') {
+            api.addEventListener(name, handler);
+            console.log('[SvarGantt] attached with addEventListener', name);
+          } else if (typeof api.addListener === 'function') {
+            api.addListener(name, handler);
+            console.log('[SvarGantt] attached with addListener', name);
+          } else {
+            console.warn('[SvarGantt] no known attach method for', name);
+          }
+        } catch (err) {
+          console.error('[SvarGantt] failed to attach listener', name, err);
+        }
+      };
 
-      // Lazy loading
-      api.on('request-data', handleRequestData);
+      const detach = (name: string, handler: any) => {
+        try {
+          if (typeof api.off === 'function') {
+            api.off(name, handler);
+          } else if (typeof api.removeEventListener === 'function') {
+            api.removeEventListener(name, handler);
+          } else if (typeof api.removeListener === 'function') {
+            api.removeListener(name, handler);
+          }
+        } catch (err) {
+          // ignore
+        }
+      };
 
-      // Task selection
-      api.on('select-task', handleTaskSelect);
+      const updateNames = ['update-task', 'updateTask', 'task:update', 'task-updated'];
+      updateNames.forEach(n => attach(n, handleTaskUpdate));
 
-      // Cleanup - SVAR handles event listener cleanup automatically
+      const requestNames = ['request-data', 'requestData', 'request-data'];
+      requestNames.forEach(n => attach(n, handleRequestData));
+
+      const selectNames = ['select-task', 'selectTask', 'task-select', 'select-task'];
+      selectNames.forEach(n => attach(n, handleTaskSelect));
+
       return () => {
-        // Event listeners are automatically cleaned up by SVAR when component unmounts
+        updateNames.forEach(n => detach(n, handleTaskUpdate));
+        requestNames.forEach(n => detach(n, handleRequestData));
+        selectNames.forEach(n => detach(n, handleTaskSelect));
       };
     }
   }, [api, handleTaskUpdate, handleRequestData, handleTaskSelect]);
@@ -314,7 +420,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
       tasks={tasks}
       scales={scales}
       columns={columns}
-      init={setApi}
+      init={(api) => { setApi(api); console.log('SvarGantt API:', api); }}
     />
   );
 
