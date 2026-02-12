@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Gantt, Willow, WillowDark, ContextMenu } from '@svar-ui/react-gantt';
 import '@svar-ui/react-gantt/all.css';
+import { message } from 'antd';
 import { useAppSelector } from '@/hooks/useAppSelector';
 import { useAppDispatch } from '@/hooks/useAppDispatch';
 import {
@@ -111,6 +112,47 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
   /**
    * Handle task update events from SVAR
    */
+  // Refs and helpers for debounced progress updates
+  const progressTimeoutsRef = useRef(new Map<string, number>());
+  const progressControllersRef = useRef(new Map<string, AbortController>());
+  const lastSentProgressRef = useRef(new Map<string, number>());
+
+  const sendProgressToBackend = useCallback(async (taskId: string, progress: number, projectForTask?: string) => {
+    const p = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
+    const key = String(taskId);
+    const last = lastSentProgressRef.current.get(key);
+    if (last === p) return; // avoid duplicate sends
+
+    // Abort any previous in-flight request for this task
+    const prevController = progressControllersRef.current.get(key);
+    if (prevController) {
+      try { prevController.abort(); } catch (e) { /* ignore */ }
+    }
+
+    const controller = new AbortController();
+    progressControllersRef.current.set(key, controller);
+
+    try {
+      // axios supports passing signal in config
+      await apiClient.put(`/api/v1/tasks/progress/${taskId}`, { progress: p }, { signal: (controller as any).signal });
+      lastSentProgressRef.current.set(key, p);
+
+      if (projectForTask) {
+        await apiClient.post(`/api/v1/tasks/refresh-progress/${projectForTask}`);
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return; // expected when aborted
+      console.error('[SvarGantt] Failed to persist progress', err);
+      // Rollback optimistic update using value from rawTasks
+      const original = rawTasks.find((t: any) => String(t.id) === key);
+      const prevValue = original?.progress ?? 0;
+      dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+      message.error('Could not save progress — changes reverted');
+    } finally {
+      progressControllersRef.current.delete(key);
+    }
+  }, [dispatch, rawTasks]);
+
   const handleTaskUpdate = useCallback(async (event: any) => {
     console.log('[SvarGantt] handleTaskUpdate event:', event);
     const id = event?.id;
@@ -131,21 +173,31 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     let newEnd: Date | null | undefined = undefined;
     let newProgress: number | undefined = undefined;
 
+    // Detect whether the incoming event is a progress edit (progress present but no start/end)
+    const eventHasProgress = event.progress !== undefined || (event.task && event.task.progress !== undefined);
+    const eventHasStartEnd = event.start !== undefined || event.end !== undefined || (event.task && (event.task.start !== undefined || event.task.end !== undefined));
+
     // Shape 1: event has direct start/end/progress
-    if (event.start !== undefined || event.end !== undefined || event.progress !== undefined) {
+    if (eventHasStartEnd || eventHasProgress) {
       newStart = event.start !== undefined ? (event.start ? new Date(event.start) : null) : undefined;
       newEnd = event.end !== undefined ? (event.end ? new Date(event.end) : null) : undefined;
       newProgress = event.progress;
 
+      // If this is progress-only in top-level event (no start/end provided), leave dates undefined so we treat as progress-only
+
     // Shape 2: event.task contains updated values
     } else if (event.task) {
       const t = event.task;
-      if (t.start !== undefined || t.end !== undefined || t.progress !== undefined) {
+      const taskHasStartEnd = t.start !== undefined || t.end !== undefined;
+      const taskHasProgress = t.progress !== undefined;
+
+      if (taskHasStartEnd || taskHasProgress) {
         newStart = t.start !== undefined ? (t.start ? new Date(t.start) : null) : undefined;
         newEnd = t.end !== undefined ? (t.end ? new Date(t.end) : null) : undefined;
         newProgress = t.progress;
-      } else if (event.diff !== undefined) {
-        // Some SVAR events provide a numeric diff (days moved). Compute from current task.
+
+      } else if (event.diff !== undefined && !eventHasProgress) {
+        // Some SVAR events provide a numeric diff (days moved). Compute from current task only if this is not a progress edit.
         const original = tasks.find((x: any) => String(x.id) === String(id));
         const diff = Number(event.diff) || 0;
         if (original) {
@@ -157,7 +209,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
       }
 
     // Shape 3: event only has diff at top level
-    } else if (event.diff !== undefined) {
+    } else if (event.diff !== undefined && !eventHasProgress) {
       const original = tasks.find((x: any) => String(x.id) === String(id));
       const diff = Number(event.diff) || 0;
       if (original) {
@@ -169,8 +221,11 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     }
 
     try {
-      // Optimistic update in Redux
-      if (newStart !== undefined || newEnd !== undefined) {
+      // Determine if this event should be treated as progress-only (no date/start changes)
+      const isProgressOnly = newProgress !== undefined && newStart === undefined && newEnd === undefined;
+
+      // Optimistic update for dates (only when dates are present)
+      if (!isProgressOnly && (newStart !== undefined || newEnd !== undefined)) {
         dispatch(updateTaskDate({
           taskId: String(id),
           start: newStart ?? null,
@@ -187,6 +242,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
         }
       }
 
+      // Handle progress updates (optimistic update + debounced persist)
       if (newProgress !== undefined) {
         console.log('[SvarGantt] Updating progress to', newProgress, 'for', id);
         dispatch(updateTaskProgress({
@@ -194,17 +250,24 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
           progress: newProgress
         }));
 
-        // Refresh progress on backend for the task's project
+        // Debounce and send a single request after user stops dragging
         const taskObj = tasks.find((t: any) => String(t.id) === String(id));
         const projectForTask = taskObj?.project_id || propProjectId;
-        if (projectForTask) {
-          await apiClient.post(`/api/v1/tasks/refresh-progress/${projectForTask}`);
+        const key = String(id);
+        const existingTimeout = progressTimeoutsRef.current.get(key);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
         }
+        const timeout = window.setTimeout(() => {
+          sendProgressToBackend(key, newProgress, projectForTask).catch(() => {});
+          progressTimeoutsRef.current.delete(key);
+        }, 500);
+        progressTimeoutsRef.current.set(key, timeout);
       }
     } catch (error) {
       console.error('Failed to update task:', error);
     }
-  }, [dispatch, propProjectId, tasks]);
+  }, [dispatch, propProjectId, tasks, sendProgressToBackend, rawTasks]);
 
   /**
    * Handle lazy loading of subtasks
