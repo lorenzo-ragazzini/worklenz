@@ -121,6 +121,8 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
   const progressControllersRef = useRef(new Map<string, AbortController>());
   const lastSentProgressRef = useRef(new Map<string, number>());
   const pendingProgressRef = useRef(new Map<string, { progress: number; projectForTask?: string; parent_task_id?: string | null }>());
+  // Track pending socket ACK timeouts so we can fallback to REST if needed
+  const ackTimersRef = useRef(new Map<string, number>());
 
   const sendProgressToBackend = useCallback(async (taskId: string, progress: number, projectForTask?: string) => {
     const p = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
@@ -151,42 +153,110 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
         return;
       }
 
-      // Require active socket connection — backend accepts progress updates over sockets; attempt REST fallback if disconnected
+      // Prefer socket-based persistence with ACK handling; fallback to REST if ACK times out
+      const ACK_TIMEOUT = 3000; // ms
+      const payload = { task_id: key, progress_value: p, parent_task_id };
+
       if (socket && connected) {
-        const payload = { task_id: taskId, progress_value: p, parent_task_id };
-        console.log('[SvarGantt] emitting UPDATE_TASK_PROGRESS', payload);
-        socket.emit(SocketEvents.UPDATE_TASK_PROGRESS.toString(), JSON.stringify(payload));
+        let ackReceived = false;
+        const timeoutId = window.setTimeout(async () => {
+          if (ackReceived) return;
+          console.warn('[SvarGantt] socket ACK timeout for', key);
 
-        // Request the latest progress for this task so UI and aggregates update
-        socket.emit(SocketEvents.GET_TASK_PROGRESS.toString(), taskId);
+          // Attempt REST fallback only if API method exists
+          const restFn = (tasksApiService as any).updateTaskProgress;
+          if (typeof restFn === 'function') {
+            try {
+              await restFn(taskId, p, { signal: controller.signal });
+              lastSentProgressRef.current.set(key, p);
+              return;
+            } catch (restErr: any) {
+              if (restErr?.name === 'AbortError') return;
+              console.error('[SvarGantt] REST fallback failed', restErr);
+            }
+          }
 
-        // If there is a parent, request its progress too so UI reflects ancestor updates
-        if (parent_task_id) socket.emit(SocketEvents.GET_TASK_PROGRESS.toString(), parent_task_id);
+          // If no REST fallback or it failed, rollback optimistic change
+          const original = rawTasks.find((t: any) => String(t.id) === key);
+          const prevValue = original?.progress ?? 0;
+          dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+          message.error('Could not save progress — no ACK from server');
+        }, ACK_TIMEOUT);
 
-        lastSentProgressRef.current.set(key, p);
-      } else {
-        // Socket not connected — attempt REST fallback using existing API client
+        ackTimersRef.current.set(key, timeoutId);
+
         try {
-          await tasksApiService.updateTaskProgress(taskId, p, { signal: controller.signal });
-          lastSentProgressRef.current.set(key, p);
-        } catch (restErr: any) {
-          if (restErr?.name === 'AbortError') {
-            return; // aborted by new in-progress change
+          socket.emit(SocketEvents.UPDATE_TASK_PROGRESS.toString(), JSON.stringify(payload), (ack: any) => {
+            ackReceived = true;
+            window.clearTimeout(timeoutId);
+            ackTimersRef.current.delete(key);
+            console.log('[SvarGantt] socket ACK for update progress', key, ack);
+
+            try {
+              const ackObj = typeof ack === 'string' ? JSON.parse(ack) : ack;
+              if (ackObj && (ackObj.task_id || ackObj.success)) {
+                lastSentProgressRef.current.set(key, p);
+              } else {
+                // Treat unexpected ACK payload as failure
+                const original = rawTasks.find((t: any) => String(t.id) === key);
+                const prevValue = original?.progress ?? 0;
+                dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+                message.error('Server rejected progress update');
+              }
+            } catch (e) {
+              // If ACK parsing failed, still mark as sent to avoid duplicate
+              lastSentProgressRef.current.set(key, p);
+            }
+          });
+        } catch (emitErr: any) {
+          window.clearTimeout(timeoutId);
+          ackTimersRef.current.delete(key);
+          console.error('[SvarGantt] socket emit failed', emitErr);
+
+          // Try REST fallback if available
+          const restFn = (tasksApiService as any).updateTaskProgress;
+          if (typeof restFn === 'function') {
+            try {
+              await restFn(taskId, p, { signal: controller.signal });
+              lastSentProgressRef.current.set(key, p);
+              return;
+            } catch (restErr: any) {
+              if (restErr?.name === 'AbortError') return;
+              console.error('[SvarGantt] REST fallback failed after emit error', restErr);
+            }
           }
 
-          if (restErr?.response?.status === 404) {
-            console.warn('[SvarGantt] REST progress endpoint not available (404)');
+          const original = rawTasks.find((t: any) => String(t.id) === key);
+          const prevValue = original?.progress ?? 0;
+          dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+          message.error('Could not save progress — changes reverted');
+        }
+      } else {
+        // No socket connection — try REST if available
+        const restFn = (tasksApiService as any).updateTaskProgress;
+        if (typeof restFn === 'function') {
+          try {
+            await restFn(taskId, p, { signal: controller.signal });
+            lastSentProgressRef.current.set(key, p);
+            return;
+          } catch (restErr: any) {
+            if (restErr?.name === 'AbortError') return;
+            console.error('[SvarGantt] REST progress update failed', restErr);
             const original = rawTasks.find((t: any) => String(t.id) === key);
             const prevValue = original?.progress ?? 0;
             dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
-            message.error('Cannot save progress: server does not support REST progress updates');
-          } else {
-            console.error('[SvarGantt] REST fallback failed', restErr);
-            const original = rawTasks.find((t: any) => String(t.id) === key);
-            const prevValue = original?.progress ?? 0;
-            dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
-            message.error('Could not save progress — changes reverted');
+            if (restErr?.response?.status === 404) {
+              message.error('Cannot save progress: server does not support progress updates');
+            } else {
+              message.error('Could not save progress — changes reverted');
+            }
           }
+        } else {
+          console.error('[SvarGantt] No socket connection and REST progress API unavailable');
+          const original = rawTasks.find((t: any) => String(t.id) === key);
+          const prevValue = original?.progress ?? 0;
+          dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+          message.error('Could not save progress — offline');
         }
       }
     } catch (err: any) {
@@ -200,7 +270,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     } finally {
       progressControllersRef.current.delete(key);
     }
-  }, [dispatch, rawTasks, socket, connected]);
+  }, [dispatch, rawTasks]);
 
   const handleTaskUpdate = useCallback(async (event: any) => {
     console.log('[SvarGantt] handleTaskUpdate event:', event);

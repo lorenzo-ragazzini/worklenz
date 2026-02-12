@@ -80,10 +80,10 @@ async function updateTaskAncestors(io: any, socket: Socket, projectId: string, t
   }
 } 
 
-export async function on_update_task_progress(io: any, socket: Socket, data: string) {
-  try {   
+export async function on_update_task_progress(io: any, socket: Socket, data: string, callback?: any) {
+  try {
     const parsedData = JSON.parse(data) as UpdateTaskProgressData;
-    const { task_id, progress_value, parent_task_id } = parsedData;    
+    const { task_id, progress_value, parent_task_id } = parsedData;
     
     if (!task_id || progress_value === undefined) {
       return;
@@ -100,6 +100,10 @@ export async function on_update_task_progress(io: any, socket: Socket, data: str
     // If this is a parent task, we shouldn't set manual progress
     if (subtaskCount > 0) {
       log_error(`Cannot set manual progress on parent task ${task_id} with ${subtaskCount} subtasks`);
+      // Acknowledge rejection if caller provided callback
+      if (typeof callback === 'function') {
+        try { callback(JSON.stringify({ success: false, reason: 'parent_has_subtasks', task_id })); } catch (e) { }
+      }
       return;
     }
     
@@ -115,8 +119,8 @@ export async function on_update_task_progress(io: any, socket: Socket, data: str
        
     // Update the task progress in the database
     await db.query(
-      `UPDATE tasks 
-      SET progress_value = $1, manual_progress = true, updated_at = NOW() 
+      `UPDATE tasks
+      SET progress_value = $1, manual_progress = true, updated_at = NOW()
       WHERE id = $2`,
       [progress_value, task_id]
     );
@@ -136,7 +140,7 @@ export async function on_update_task_progress(io: any, socket: Socket, data: str
       if (progress_value >= 100) {
         // Check if the task's current status is in a "done" category
         const statusCategoryResult = await db.query(`
-          SELECT stsc.is_done 
+          SELECT stsc.is_done
           FROM task_statuses ts
           JOIN sys_task_status_categories stsc ON ts.category_id = stsc.id
           WHERE ts.id = $1
@@ -149,16 +153,23 @@ export async function on_update_task_progress(io: any, socket: Socket, data: str
       }
 
       // Emit the update to all clients in the project room
-      socket.emit(
-        SocketEvents.TASK_PROGRESS_UPDATED.toString(),
-        {
-          task_id,
-          progress_value,
-          should_prompt_for_done: shouldPromptForDone
-        }
-      );
+      const payload = {
+        task_id,
+        progress_value,
+        should_prompt_for_done: shouldPromptForDone
+      };
+      socket.emit(SocketEvents.TASK_PROGRESS_UPDATED.toString(), payload);
       
       log(`Emitted progress update for task ${task_id} to project room ${projectId}`, null);
+
+      // Acknowledge the caller (if present) with success
+      if (typeof callback === 'function') {
+        try {
+          callback(JSON.stringify({ success: true, task_id }));
+        } catch (cbErr) {
+          // ignore
+        }
+      }
       
       // If this task has a parent, use our controller to update all ancestors
       if (parent_task_id) {
@@ -173,5 +184,9 @@ export async function on_update_task_progress(io: any, socket: Socket, data: str
     }
   } catch (error) {
     log_error(error);
+    // If there's an error, inform caller
+    if (typeof callback === 'function') {
+      try { callback(JSON.stringify({ success: false, error: String(error) })); } catch (e) { }
+    }
   }
 }

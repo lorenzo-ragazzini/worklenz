@@ -109,7 +109,7 @@ export function register(io: any, socket: Socket) {
   socket.on(SocketEvents.TASK_ASSIGNEES_CHANGE.toString(), data => on_task_assignees_change(io, socket, data));
   socket.on(SocketEvents.TASK_CUSTOM_COLUMN_UPDATE.toString(), data => on_task_custom_column_update(io, socket, data));
   socket.on(SocketEvents.CUSTOM_COLUMN_PINNED_CHANGE.toString(), data => on_custom_column_pinned_change(io, socket, data));
-  socket.on(SocketEvents.UPDATE_TASK_PROGRESS.toString(), data => on_update_task_progress(io, socket, data));
+  socket.on(SocketEvents.UPDATE_TASK_PROGRESS.toString(), (data, cb) => on_update_task_progress(io, socket, data, cb));
   socket.on(SocketEvents.UPDATE_TASK_WEIGHT.toString(), data => on_update_task_weight(io, socket, data));
   socket.on(SocketEvents.GET_TASK_SUBTASKS_COUNT.toString(), (taskId) => on_get_task_subtasks_count(io, socket, taskId));
   socket.on(SocketEvents.GET_DONE_STATUSES.toString(), (projectId, callback) => on_get_done_statuses(io, socket, projectId, callback));
