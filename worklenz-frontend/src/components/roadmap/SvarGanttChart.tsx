@@ -14,7 +14,10 @@ import { transformSvarTaskToBackend, transformBackendTaskToSvar } from '@/featur
 import { setShowTaskDrawer } from '@/features/task-drawer/task-drawer.slice';
 import apiClient from '@/api/api-client';
 import { taskDependenciesApiService } from '@/api/tasks/task-dependencies.api.service';
+import { tasksApiService } from '@/api/tasks/tasks.api.service';
 import { TaskContextMenu } from './TaskContextMenu';
+import { useSocket } from '@/socket/socketContext';
+import { SocketEvents } from '@/shared/socket-events';
 import './SvarGanttChart.css';
 
 interface SvarGanttChartProps {
@@ -41,6 +44,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
   const viewMode = useAppSelector(state => state.roadmapReducer.viewMode);
   const themeMode = useAppSelector(state => state.themeReducer.mode);
   const timeZone = useAppSelector(state => state.userReducer.timezone || 'UTC');
+  const { socket, connected } = useSocket();
 
   // Deep clone tasks to avoid SVAR trying to modify frozen Redux objects
   const tasks = React.useMemo(() => {
@@ -116,6 +120,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
   const progressTimeoutsRef = useRef(new Map<string, number>());
   const progressControllersRef = useRef(new Map<string, AbortController>());
   const lastSentProgressRef = useRef(new Map<string, number>());
+  const pendingProgressRef = useRef(new Map<string, { progress: number; projectForTask?: string; parent_task_id?: string | null }>());
 
   const sendProgressToBackend = useCallback(async (taskId: string, progress: number, projectForTask?: string) => {
     const p = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
@@ -133,12 +138,56 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     progressControllersRef.current.set(key, controller);
 
     try {
-      // axios supports passing signal in config
-      await apiClient.put(`/api/v1/tasks/progress/${taskId}`, { progress: p }, { signal: (controller as any).signal });
-      lastSentProgressRef.current.set(key, p);
+      const originalTask = rawTasks.find((t: any) => String(t.id) === String(taskId));
+      const parent_task_id = originalTask?.parent_task_id ?? null;
 
-      if (projectForTask) {
-        await apiClient.post(`/api/v1/tasks/refresh-progress/${projectForTask}`);
+      // Prevent manual progress on parent/summary tasks that have subtasks
+      const isParentTask = !!(originalTask && (originalTask.subtasks_count > 0 || originalTask.has_subtasks));
+      if (isParentTask) {
+        console.warn('[SvarGantt] blocked manual progress for parent/summary task', taskId);
+        const prevValue = originalTask?.progress ?? 0;
+        dispatch(updateTaskProgress({ taskId: String(taskId), progress: prevValue }));
+        message.error('Cannot set manual progress for summary tasks with subtasks');
+        return;
+      }
+
+      // Require active socket connection — backend accepts progress updates over sockets; attempt REST fallback if disconnected
+      if (socket && connected) {
+        const payload = { task_id: taskId, progress_value: p, parent_task_id };
+        console.log('[SvarGantt] emitting UPDATE_TASK_PROGRESS', payload);
+        socket.emit(SocketEvents.UPDATE_TASK_PROGRESS.toString(), JSON.stringify(payload));
+
+        // Request the latest progress for this task so UI and aggregates update
+        socket.emit(SocketEvents.GET_TASK_PROGRESS.toString(), taskId);
+
+        // If there is a parent, request its progress too so UI reflects ancestor updates
+        if (parent_task_id) socket.emit(SocketEvents.GET_TASK_PROGRESS.toString(), parent_task_id);
+
+        lastSentProgressRef.current.set(key, p);
+      } else {
+        // Socket not connected — attempt REST fallback using existing API client
+        try {
+          await tasksApiService.updateTaskProgress(taskId, p, { signal: controller.signal });
+          lastSentProgressRef.current.set(key, p);
+        } catch (restErr: any) {
+          if (restErr?.name === 'AbortError') {
+            return; // aborted by new in-progress change
+          }
+
+          if (restErr?.response?.status === 404) {
+            console.warn('[SvarGantt] REST progress endpoint not available (404)');
+            const original = rawTasks.find((t: any) => String(t.id) === key);
+            const prevValue = original?.progress ?? 0;
+            dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+            message.error('Cannot save progress: server does not support REST progress updates');
+          } else {
+            console.error('[SvarGantt] REST fallback failed', restErr);
+            const original = rawTasks.find((t: any) => String(t.id) === key);
+            const prevValue = original?.progress ?? 0;
+            dispatch(updateTaskProgress({ taskId: key, progress: prevValue }));
+            message.error('Could not save progress — changes reverted');
+          }
+        }
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') return; // expected when aborted
@@ -151,7 +200,7 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     } finally {
       progressControllersRef.current.delete(key);
     }
-  }, [dispatch, rawTasks]);
+  }, [dispatch, rawTasks, socket, connected]);
 
   const handleTaskUpdate = useCallback(async (event: any) => {
     console.log('[SvarGantt] handleTaskUpdate event:', event);
@@ -181,7 +230,8 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
     if (eventHasStartEnd || eventHasProgress) {
       newStart = event.start !== undefined ? (event.start ? new Date(event.start) : null) : undefined;
       newEnd = event.end !== undefined ? (event.end ? new Date(event.end) : null) : undefined;
-      newProgress = event.progress;
+      // Support both top-level progress and nested `task.progress` (some SVAR events put progress inside task)
+      newProgress = event.progress !== undefined ? event.progress : (event.task && event.task.progress !== undefined ? event.task.progress : undefined);
 
       // If this is progress-only in top-level event (no start/end provided), leave dates undefined so we treat as progress-only
 
@@ -250,19 +300,36 @@ export const SvarGanttChart: React.FC<SvarGanttChartProps> = ({ projectId: propP
           progress: newProgress
         }));
 
+        // Determine if SVAR indicates this is an in-progress drag operation
+        const isInProgress = event?.inProgress === true || (event.task && event.task.inProgress === true);
+
         // Debounce and send a single request after user stops dragging
         const taskObj = tasks.find((t: any) => String(t.id) === String(id));
         const projectForTask = taskObj?.project_id || propProjectId;
         const key = String(id);
+
+        // Clear any pending timeout so we restart debounce each update
         const existingTimeout = progressTimeoutsRef.current.get(key);
         if (existingTimeout) {
           clearTimeout(existingTimeout);
+          progressTimeoutsRef.current.delete(key);
         }
+
+        // Always debounce send — repeated inProgress events will keep resetting the timer
         const timeout = window.setTimeout(() => {
           sendProgressToBackend(key, newProgress, projectForTask).catch(() => {});
           progressTimeoutsRef.current.delete(key);
         }, 500);
         progressTimeoutsRef.current.set(key, timeout);
+
+        // If dragging is ongoing, abort any in-flight request to avoid race conditions
+        if (isInProgress) {
+          const prevController = progressControllersRef.current.get(key);
+          if (prevController) {
+            try { prevController.abort(); } catch (e) { /* ignore */ }
+            progressControllersRef.current.delete(key);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to update task:', error);
